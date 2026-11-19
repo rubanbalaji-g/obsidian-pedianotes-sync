@@ -79,6 +79,21 @@ export class SyncModal extends Modal {
         row.createEl("span", { text: c.vaultPath });
         const btns = row.createEl("div", { attr: { style: "display:flex;gap:4px;" } });
 
+        const bDiff = btns.createEl("button", { text: "View Diff" });
+        bDiff.addEventListener("click", async () => {
+          bDiff.disabled = true;
+          bDiff.textContent = "Loading...";
+          try {
+            const serverText = await this.engine.fetchServerText(c.repoPath);
+            this.showDiffModal(c.vaultPath, serverText, c.compiled.content);
+          } catch (err: any) {
+            new Notice(`Could not load diff: ${err.message}`);
+          } finally {
+            bDiff.disabled = false;
+            bDiff.textContent = "View Diff";
+          }
+        });
+
         const bServer = btns.createEl("button", { text: "Keep Server" });
         bServer.addEventListener("click", async () => {
           await this.engine.resolveConflictKeepServer(c, plan);
@@ -114,6 +129,19 @@ export class SyncModal extends Modal {
 
     // 3. Push Local Changes Section
     const pushNotes = [...plan.newLocalNotes, ...plan.modifiedLocalNotes];
+    const lintWarnings = this.engine.lintNotes(pushNotes);
+    if (lintWarnings.length > 0) {
+      const warnBox = contentEl.createEl("div", { cls: "pn-section-box pn-conflict-box" });
+      warnBox.createEl("div", {
+        text: `⚠️ Pre-Publish Lint Warnings (${lintWarnings.length})`,
+        cls: "pn-section-title",
+      });
+      const wList = warnBox.createEl("div", { cls: "pn-file-list" });
+      for (const w of lintWarnings.slice(0, 15)) {
+        wList.createEl("div", { text: w, cls: "pn-file-row" });
+      }
+    }
+
     if (pushNotes.length > 0 || plan.imagesToUpload.length > 0) {
       const box = contentEl.createEl("div", { cls: "pn-section-box" });
       box.createEl("div", {
@@ -210,8 +238,64 @@ export class SyncModal extends Modal {
       window.open(MODULE_URLS[this.settings.module], "_blank");
     });
 
+    const pullAllBtn = actions.createEl("button", { text: "⬇️ Pull All from Server" });
+    pullAllBtn.addEventListener("click", async () => {
+      pullAllBtn.disabled = true;
+      pullAllBtn.textContent = "Pulling All...";
+      progressWrap.style.display = "block";
+      try {
+        const count = await this.engine.pullAllFromServer((done, total) => {
+          progressBar.style.width = `${Math.round((done / Math.max(total, 1)) * 100)}%`;
+        });
+        new Notice(`✅ Pulled ${count} total file(s) from PediaNotes`);
+        if (this.onSyncComplete) this.onSyncComplete();
+        await this.render();
+      } catch (err: any) {
+        new Notice(`❌ Pull All failed: ${err.message}`);
+        pullAllBtn.disabled = false;
+        pullAllBtn.textContent = "⬇️ Pull All from Server";
+      }
+    });
+
     const closeBtn = actions.createEl("button", { text: "Close" });
     closeBtn.addEventListener("click", () => this.close());
+  }
+
+  private showDiffModal(title: string, serverText: string, localText: string) {
+    const m = new Modal(this.app);
+    m.contentEl.createEl("h3", { text: `Diff: ${title}` });
+    m.contentEl.createEl("p", {
+      text: "Red (-) = Server version | Green (+) = Your local version",
+      attr: { style: "font-size:12px;color:var(--text-muted);" },
+    });
+    const pre = m.contentEl.createEl("pre", {
+      attr: {
+        style:
+          "max-height:420px;overflow:auto;background:var(--background-secondary);padding:12px;border-radius:8px;font-size:11.5px;white-space:pre-wrap;",
+      },
+    });
+    const sLines = serverText.replace(/\r\n/g, "\n").split("\n");
+    const lLines = localText.replace(/\r\n/g, "\n").split("\n");
+    const sSet = new Set(sLines);
+    const lSet = new Set(lLines);
+
+    for (const line of sLines) {
+      if (!lSet.has(line)) {
+        pre.createEl("div", {
+          text: `- ${line}`,
+          attr: { style: "color:#f87171;background:rgba(239,68,68,0.1);" },
+        });
+      }
+    }
+    for (const line of lLines) {
+      if (!sSet.has(line)) {
+        pre.createEl("div", {
+          text: `+ ${line}`,
+          attr: { style: "color:#4ade80;background:rgba(74,222,128,0.1);" },
+        });
+      }
+    }
+    m.open();
   }
 
   onClose() {

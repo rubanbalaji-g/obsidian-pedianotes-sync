@@ -113,6 +113,7 @@ export class PediaNotesClient {
     deletes?: string[];
     force?: boolean;
     commitMessage?: string;
+    displayName?: string;
   }): Promise<PushResponse> {
     const res = await requestUrl({
       url: `${this.baseUrl()}/_api/plugin/push`,

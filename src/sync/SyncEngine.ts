@@ -263,7 +263,19 @@ export class SyncEngine {
 
   public async resolveConflictSaveCopy(conflict: ConflictItem): Promise<string> {
     const copyPath = conflict.vaultPath.replace(/\.md$/i, ` (Conflict ${Date.now()}).md`);
-    const raw = await this.vault.read(conflict.compiled.file);
+    let raw = await this.vault.read(conflict.compiled.file);
+    // Ensure the conflict copy has publish: false so it is never accidentally published
+    const fmMatch = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+    if (fmMatch) {
+      const fmLines = fmMatch[1]
+        .split(/\r?\n/)
+        .filter((l) => !/^\s*publish:\s*/i.test(l));
+      fmLines.unshift("publish: false");
+      raw = `---\n${fmLines.join("\n")}\n---\n${raw.slice(fmMatch[0].length)}`;
+    } else {
+      raw = `---\npublish: false\n---\n${raw}`;
+    }
+
     await this.vault.create(copyPath, raw);
     const pulled = await this.client.pullFiles([conflict.repoPath]);
     if (pulled.length > 0) {
@@ -272,6 +284,64 @@ export class SyncEngine {
       await this.saveSettings();
     }
     return copyPath;
+  }
+
+  public async fetchServerText(repoPath: string): Promise<string> {
+    const pulled = await this.client.pullFiles([repoPath]);
+    return pulled[0]?.content ?? "";
+  }
+
+  public lintNotes(notes: CompiledNote[]): string[] {
+    const warnings: string[] = [];
+    for (const n of notes) {
+      // 1. Check trailing emoji/non-ASCII symbol at end of filename (Hugo 404 trap)
+      if (/[^\w\s().-]$/.test(n.file.basename)) {
+        warnings.push(`Filename "${n.file.name}" ends with a symbol/emoji (may cause 404 URLs in Hugo).`);
+      }
+      // 2. Check missing local images
+      for (const ref of collectImageRefs(n.content, this.vault)) {
+        if (!ref.file && !ref.rawRef.startsWith("/img/") && !ref.rawRef.startsWith("/images/")) {
+          warnings.push(`Missing local image "${ref.rawRef}" referenced in ${n.file.path}.`);
+        }
+      }
+    }
+    return warnings;
+  }
+
+  public async pullAllFromServer(onProgress?: (done: number, total: number) => void): Promise<number> {
+    const manifest = await this.client.getManifest();
+    const allPaths = (manifest.files || []).map((f) => f.path);
+    if (allPaths.length === 0) return 0;
+
+    const localFiles = this.vault.getMarkdownFiles();
+    const repoToVaultPath = new Map<string, string>();
+    for (const file of localFiles) {
+      const raw = await this.vault.cachedRead(file);
+      repoToVaultPath.set(this.compiler.getRepoPath(file, raw), file.path);
+    }
+
+    const pulled = await this.client.pullFiles(allPaths);
+    let written = 0;
+    for (const item of pulled) {
+      const targetPath = this.mapRepoPathToVaultPath(item.path, repoToVaultPath);
+      await this.ensureFolder(targetPath);
+      const existing = this.vault.getAbstractFileByPath(targetPath);
+      if (item.encoding === "utf-8") {
+        if (existing instanceof TFile) await this.vault.modify(existing, item.content);
+        else if (!existing) await this.vault.create(targetPath, item.content);
+      } else {
+        const bytes = Base64.toUint8Array(item.content);
+        const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+        if (existing instanceof TFile) await this.vault.modifyBinary(existing, ab);
+        else if (!existing) await this.vault.createBinary(targetPath, ab);
+      }
+      this.settings.baseShas[item.path] = item.sha;
+      written++;
+      if (onProgress) onProgress(written, pulled.length);
+    }
+    this.settings.lastSyncAt = new Date().toISOString();
+    await this.saveSettings();
+    return written;
   }
 
   public async pushToServer(
@@ -310,6 +380,7 @@ export class SyncEngine {
       files,
       force: Boolean(opts?.force),
       commitMessage: opts?.commitMessage,
+      displayName: this.settings.displayName || this.settings.userName || this.settings.userEmail,
     });
 
     for (const [p, sha] of Object.entries(res.updatedShas || {})) {

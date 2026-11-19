@@ -4,6 +4,7 @@ export interface PediaNotesPluginSettings {
   token: string;
   userEmail: string;
   userName: string;
+  displayName: string;
   isAdmin: boolean;
   allowedModules: string[];
   module: PediaModule;
@@ -11,6 +12,7 @@ export interface PediaNotesPluginSettings {
   publishAllNotes: boolean;
   imageFolder: string;
   baseShas: Record<string, string>; // repoPath -> last synced Git blob SHA
+  offlineQueue: string[]; // vault paths queued when offline
   lastSyncAt: string;
 }
 
@@ -18,6 +20,7 @@ export const DEFAULT_SETTINGS: PediaNotesPluginSettings = {
   token: "",
   userEmail: "",
   userName: "",
+  displayName: "",
   isAdmin: false,
   allowedModules: [],
   module: "theory",
@@ -25,6 +28,7 @@ export const DEFAULT_SETTINGS: PediaNotesPluginSettings = {
   publishAllNotes: false,
   imageFolder: "img",
   baseShas: {},
+  offlineQueue: [],
   lastSyncAt: "",
 };
 

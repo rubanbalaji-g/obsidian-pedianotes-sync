@@ -57,6 +57,19 @@ export class SettingsTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Display Name (Author Attribution)")
+      .setDesc("Name shown as 'By <Your Name>' on notes you edit or create.")
+      .addText((txt) =>
+        txt
+          .setPlaceholder(this.plugin.settings.userName || "e.g. Dr. Priya S")
+          .setValue(this.plugin.settings.displayName)
+          .onChange(async (val) => {
+            this.plugin.settings.displayName = val.trim();
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
       .setName("Target PediaNotes Site (Vault Module)")
       .setDesc("Choose which PediaNotes knowledge base this Obsidian vault syncs with.")
       .addDropdown((dd) => {

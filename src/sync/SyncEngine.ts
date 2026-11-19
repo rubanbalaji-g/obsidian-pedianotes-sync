@@ -153,14 +153,19 @@ export class SyncEngine {
       }
     }
 
-    // 2. Remote notes that don't exist locally -> to pull
+    // 2. Remote notes that don't exist locally -> either to pull OR locally deleted (if in baseShas)
+    const remoteDeletes: string[] = [];
     for (const rf of remoteFiles) {
       if (rf.type === "note" && !localByRepoPath.has(rf.path)) {
-        // Check if file exists in vault without publish:true yet
         const targetVaultPath = this.mapRepoPathToVaultPath(rf.path, repoToVaultPath);
         const existingLocal = this.vault.getAbstractFileByPath(targetVaultPath);
         if (!existingLocal) {
-          toPullNotes.push(rf);
+          if (this.settings.baseShas?.[rf.path]) {
+            // Previously synced note was deleted locally -> mark for removal on server
+            remoteDeletes.push(rf.path);
+          } else {
+            toPullNotes.push(rf);
+          }
         } else if (existingLocal instanceof TFile) {
           const raw = await this.vault.cachedRead(existingLocal);
           const localSha = await computeGitBlobShaFromText(raw);
@@ -202,7 +207,7 @@ export class SyncEngine {
       modifiedLocalNotes,
       conflicts,
       imagesToUpload,
-      remoteDeletes: [],
+      remoteDeletes,
       unchangedCount,
       repoToVaultPath,
     };
@@ -347,10 +352,16 @@ export class SyncEngine {
   public async pushToServer(
     notes: CompiledNote[],
     images: Array<{ repoPath: string; file: TFile }>,
-    opts?: { force?: boolean; commitMessage?: string; onProgress?: (done: number, total: number) => void }
+    opts?: {
+      deletes?: string[];
+      force?: boolean;
+      commitMessage?: string;
+      onProgress?: (done: number, total: number) => void;
+    }
   ) {
     const files: PushFilePayload[] = [];
-    const total = notes.length + images.length;
+    const deletes = opts?.deletes || [];
+    const total = notes.length + images.length + deletes.length;
     let prep = 0;
 
     for (const note of notes) {
@@ -378,10 +389,15 @@ export class SyncEngine {
 
     const res = await this.client.pushFiles({
       files,
+      deletes,
       force: Boolean(opts?.force),
       commitMessage: opts?.commitMessage,
       displayName: this.settings.displayName || this.settings.userName || this.settings.userEmail,
     });
+
+    for (const delPath of deletes) {
+      delete this.settings.baseShas[delPath];
+    }
 
     for (const [p, sha] of Object.entries(res.updatedShas || {})) {
       this.settings.baseShas[p] = sha;

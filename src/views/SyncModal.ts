@@ -64,6 +64,7 @@ export class SyncModal extends Modal {
     addStat(plan.newLocalNotes.length, "New Local", "#4ade80");
     addStat(plan.modifiedLocalNotes.length, "Modified", "#fbbf24");
     addStat(plan.conflicts.length, "Conflicts", "#f87171");
+    addStat(plan.remoteDeletes.length, "Remove", "#fb7185");
     addStat(plan.unchangedCount, "Synced", "#94a3b8");
 
     // 1. Conflicts Section
@@ -142,10 +143,10 @@ export class SyncModal extends Modal {
       }
     }
 
-    if (pushNotes.length > 0 || plan.imagesToUpload.length > 0) {
+    if (pushNotes.length > 0 || plan.imagesToUpload.length > 0 || plan.remoteDeletes.length > 0) {
       const box = contentEl.createEl("div", { cls: "pn-section-box" });
       box.createEl("div", {
-        text: `🟢/🟡 Ready to Publish (${pushNotes.length} notes, ${plan.imagesToUpload.length} images)`,
+        text: `Ready to Publish (${pushNotes.length} notes, ${plan.imagesToUpload.length} images, ${plan.remoteDeletes.length} remove)`,
         cls: "pn-section-title",
       });
       const list = box.createEl("div", { cls: "pn-file-list" });
@@ -183,9 +184,19 @@ export class SyncModal extends Modal {
         const row = list.createEl("div", { cls: "pn-file-row" });
         row.createEl("span", { text: `🖼 IMG: ${img.file.name}` });
       }
+      for (const delPath of plan.remoteDeletes) {
+        const row = list.createEl("div", { cls: "pn-file-row" });
+        row.createEl("span", { text: `🔴 REMOVE: ${delPath}`, attr: { style: "color:#fb7185;" } });
+      }
     }
 
-    if (pullTotal === 0 && pushNotes.length === 0 && plan.imagesToUpload.length === 0 && plan.conflicts.length === 0) {
+    if (
+      pullTotal === 0 &&
+      pushNotes.length === 0 &&
+      plan.imagesToUpload.length === 0 &&
+      plan.remoteDeletes.length === 0 &&
+      plan.conflicts.length === 0
+    ) {
       contentEl.createEl("p", {
         text: "✨ Everything is up to date between your Obsidian vault and PediaNotes!",
       });
@@ -193,7 +204,7 @@ export class SyncModal extends Modal {
 
     // Commit Note Input (if pushing)
     let commitInput: HTMLInputElement | null = null;
-    if (pushNotes.length > 0 || plan.imagesToUpload.length > 0) {
+    if (pushNotes.length > 0 || plan.imagesToUpload.length > 0 || plan.remoteDeletes.length > 0) {
       const msgWrap = contentEl.createEl("div", { attr: { style: "margin-top:10px;" } });
       commitInput = msgWrap.createEl("input", {
         type: "text",
@@ -226,9 +237,9 @@ export class SyncModal extends Modal {
       });
     }
 
-    if (pushNotes.length > 0 || plan.imagesToUpload.length > 0) {
+    if (pushNotes.length > 0 || plan.imagesToUpload.length > 0 || plan.remoteDeletes.length > 0) {
       const pushBtn = actions.createEl("button", {
-        text: `🚀 Publish ${pushNotes.length} Note(s)`,
+        text: `🚀 Publish (${pushNotes.length} + ${plan.remoteDeletes.length} remove)`,
         cls: "mod-cta",
       });
       pushBtn.addEventListener("click", async () => {
@@ -237,20 +248,21 @@ export class SyncModal extends Modal {
         progressWrap.style.display = "block";
         try {
           const res = await this.engine.pushToServer(pushNotes, plan.imagesToUpload, {
+            deletes: plan.remoteDeletes,
             commitMessage: commitInput?.value.trim() || undefined,
             onProgress: (done, total) => {
               progressBar.style.width = `${Math.round((done / Math.max(total, 1)) * 100)}%`;
             },
           });
           new Notice(
-            `✅ Published ${res.uploadedCount} file(s)! Site rebuilt in ${res.build?.ms || 0}ms.`
+            `✅ Synced! Uploaded ${res.uploadedCount}, removed ${res.deletedCount}. Rebuilt in ${res.build?.ms || 0}ms.`
           );
           if (this.onSyncComplete) this.onSyncComplete();
           this.close();
         } catch (err: any) {
           new Notice(`❌ Publish failed: ${err.message}`);
           pushBtn.disabled = false;
-          pushBtn.textContent = `🚀 Publish ${pushNotes.length} Note(s)`;
+          pushBtn.textContent = `🚀 Publish (${pushNotes.length} + ${plan.remoteDeletes.length} remove)`;
         }
       });
     }

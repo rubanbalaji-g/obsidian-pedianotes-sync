@@ -386,7 +386,31 @@ export class SyncEngine {
     for (const [p, sha] of Object.entries(res.updatedShas || {})) {
       this.settings.baseShas[p] = sha;
     }
-    this.settings.lastSyncAt = new Date().toISOString();
+
+    // Sync local note frontmatter with server's updated_at / updated_by so Modified counter resets to 0
+    const nowIso = new Date().toISOString();
+    const author = this.settings.displayName || this.settings.userName || this.settings.userEmail || "Rubanbalaji G";
+    for (const note of notes) {
+      try {
+        const raw = await this.vault.read(note.file);
+        const norm = raw.replace(/\r\n/g, "\n");
+        const fmMatch = norm.match(/^---\n([\s\S]*?)\n---\n?/);
+        let updatedLocal = norm;
+        if (fmMatch) {
+          const lines = fmMatch[1]
+            .split("\n")
+            .filter((l) => !/^\s*(updated_at|updated_by):\s*/i.test(l));
+          lines.push(`updated_at: "${nowIso}"`);
+          lines.push(`updated_by: "${author}"`);
+          updatedLocal = `---\n${lines.join("\n")}\n---\n${norm.slice(fmMatch[0].length)}`;
+        }
+        await this.vault.modify(note.file, updatedLocal);
+        const newSha = await computeGitBlobShaFromText(updatedLocal);
+        this.settings.baseShas[note.repoPath] = newSha;
+      } catch {}
+    }
+
+    this.settings.lastSyncAt = nowIso;
     await this.saveSettings();
     if (opts?.onProgress) opts.onProgress(total, total);
     return res;

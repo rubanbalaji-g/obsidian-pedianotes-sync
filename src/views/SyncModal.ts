@@ -22,7 +22,7 @@ export class SyncModal extends Modal {
     contentEl.addClass("pn-sync-modal");
 
     const header = contentEl.createEl("div", { cls: "pn-sync-header" });
-    header.createEl("h2", { text: "PediaNotes 2-Way Sync Center", attr: { style: "margin:0;" } });
+    header.createEl("h2", { text: "PediaNotes Syncer", attr: { style: "margin:0;" } });
     header.createEl("span", {
       text: `${this.settings.module.toUpperCase()} • ${this.settings.userEmail || "Not Signed In"}`,
       cls: "pn-sync-badge",
@@ -155,7 +155,29 @@ export class SyncModal extends Modal {
       }
       for (const n of plan.modifiedLocalNotes) {
         const row = list.createEl("div", { cls: "pn-file-row" });
-        row.createEl("span", { text: `🟡 EDIT: ${n.file.path}` });
+        const link = row.createEl("span", {
+          text: `🟡 EDIT: ${n.file.path}`,
+          attr: { style: "cursor:pointer;text-decoration:underline;text-underline-offset:3px;" },
+        });
+        const diffBtn = row.createEl("button", {
+          text: "Diff",
+          attr: { style: "font-size:11px;padding:2px 8px;" },
+        });
+        const openDiff = async () => {
+          diffBtn.disabled = true;
+          diffBtn.textContent = "...";
+          try {
+            const serverText = await this.engine.fetchServerText(n.repoPath);
+            this.showDiffModal(n.file.path, serverText, n.content);
+          } catch (err: any) {
+            new Notice(`Could not load diff: ${err.message}`);
+          } finally {
+            diffBtn.disabled = false;
+            diffBtn.textContent = "Diff";
+          }
+        };
+        link.addEventListener("click", openDiff);
+        diffBtn.addEventListener("click", openDiff);
       }
       for (const img of plan.imagesToUpload) {
         const row = list.createEl("div", { cls: "pn-file-row" });
@@ -263,37 +285,45 @@ export class SyncModal extends Modal {
 
   private showDiffModal(title: string, serverText: string, localText: string) {
     const m = new Modal(this.app);
-    m.contentEl.createEl("h3", { text: `Diff: ${title}` });
+    m.contentEl.createEl("h3", { text: `GitHub-Style Diff: ${title}` });
     m.contentEl.createEl("p", {
       text: "Red (-) = Server version | Green (+) = Your local version",
-      attr: { style: "font-size:12px;color:var(--text-muted);" },
+      attr: { style: "font-size:12px;color:var(--text-muted);margin-bottom:10px;" },
     });
-    const pre = m.contentEl.createEl("pre", {
+    const pre = m.contentEl.createEl("div", {
       attr: {
         style:
-          "max-height:420px;overflow:auto;background:var(--background-secondary);padding:12px;border-radius:8px;font-size:11.5px;white-space:pre-wrap;",
+          "max-height:460px;overflow:auto;background:#0d1117;border:1px solid rgba(255,255,255,0.12);border-radius:8px;font-family:var(--font-monospace);font-size:11.5px;line-height:1.5;",
       },
     });
     const sLines = serverText.replace(/\r\n/g, "\n").split("\n");
     const lLines = localText.replace(/\r\n/g, "\n").split("\n");
-    const sSet = new Set(sLines);
-    const lSet = new Set(lLines);
+    const maxLen = Math.max(sLines.length, lLines.length);
 
-    for (const line of sLines) {
-      if (!lSet.has(line)) {
-        pre.createEl("div", {
-          text: `- ${line}`,
-          attr: { style: "color:#f87171;background:rgba(239,68,68,0.1);" },
+    let hasDiff = false;
+    for (let i = 0; i < maxLen; i++) {
+      const s = sLines[i];
+      const l = lLines[i];
+      if (s === l) continue;
+      hasDiff = true;
+      if (s !== undefined) {
+        const row = pre.createEl("div", {
+          attr: { style: "display:flex;gap:10px;padding:2px 10px;background:rgba(248,81,73,0.15);color:#ffa198;" },
         });
+        row.createEl("span", { text: String(i + 1).padStart(4, " "), attr: { style: "opacity:0.5;user-select:none;" } });
+        row.createEl("span", { text: `- ${s}`, attr: { style: "white-space:pre-wrap;word-break:break-word;" } });
+      }
+      if (l !== undefined) {
+        const row = pre.createEl("div", {
+          attr: { style: "display:flex;gap:10px;padding:2px 10px;background:rgba(46,160,67,0.18);color:#7ee787;" },
+        });
+        row.createEl("span", { text: String(i + 1).padStart(4, " "), attr: { style: "opacity:0.5;user-select:none;" } });
+        row.createEl("span", { text: `+ ${l}`, attr: { style: "white-space:pre-wrap;word-break:break-word;" } });
       }
     }
-    for (const line of lLines) {
-      if (!sSet.has(line)) {
-        pre.createEl("div", {
-          text: `+ ${line}`,
-          attr: { style: "color:#4ade80;background:rgba(74,222,128,0.1);" },
-        });
-      }
+
+    if (!hasDiff) {
+      pre.createEl("div", { text: "No differences found.", attr: { style: "padding:14px;color:#94a3b8;" } });
     }
     m.open();
   }

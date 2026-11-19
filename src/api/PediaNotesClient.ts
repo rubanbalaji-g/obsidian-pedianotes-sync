@@ -88,22 +88,31 @@ export class PediaNotesClient {
 
   async pullFiles(paths: string[]): Promise<PulledFile[]> {
     const all: PulledFile[] = [];
-    const CHUNK = 80;
+    const CHUNK = 120;
+    const batches: string[][] = [];
     for (let i = 0; i < paths.length; i += CHUNK) {
-      const batch = paths.slice(i, i + CHUNK);
-      const res = await requestUrl({
-        url: `${this.baseUrl()}/_api/plugin/pull`,
-        method: "POST",
-        headers: this.headers(),
-        body: JSON.stringify({ paths: batch }),
-        throw: false,
-      });
-      if (res.status >= 400) {
-        throw new Error(res.json?.error || `Pull failed (${res.status})`);
-      }
-      if (Array.isArray(res.json?.files)) {
-        all.push(...res.json.files);
-      }
+      batches.push(paths.slice(i, i + CHUNK));
+    }
+
+    const CONCURRENCY = 3;
+    for (let i = 0; i < batches.length; i += CONCURRENCY) {
+      const slice = batches.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(
+        slice.map(async (batch) => {
+          const res = await requestUrl({
+            url: `${this.baseUrl()}/_api/plugin/pull`,
+            method: "POST",
+            headers: this.headers(),
+            body: JSON.stringify({ paths: batch }),
+            throw: false,
+          });
+          if (res.status >= 400) {
+            throw new Error(res.json?.error || `Pull failed (${res.status})`);
+          }
+          return Array.isArray(res.json?.files) ? (res.json.files as PulledFile[]) : [];
+        })
+      );
+      for (const r of results) all.push(...r);
     }
     return all;
   }

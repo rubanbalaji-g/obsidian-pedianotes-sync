@@ -40,7 +40,7 @@ export default class PediaNotesSyncPlugin extends Plugin {
       }
     });
 
-    this.addRibbonIcon("refresh-cw", "PediaNotes 2-Way Sync Center", () => {
+    this.addRibbonIcon("refresh-cw", "PediaNotes Syncer", () => {
       new SyncModal(this.app, this.engine, this.settings, () => this.updateStatusBar()).open();
     });
 
@@ -53,7 +53,7 @@ export default class PediaNotesSyncPlugin extends Plugin {
 
     this.addCommand({
       id: "open-pedianotes-sync-center",
-      name: "Open PediaNotes Sync Center",
+      name: "Open PediaNotes Syncer",
       callback: () => {
         new SyncModal(this.app, this.engine, this.settings, () => this.updateStatusBar()).open();
       },

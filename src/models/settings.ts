@@ -13,6 +13,7 @@ export interface PediaNotesPluginSettings {
   imageFolder: string;
   baseShas: Record<string, string>; // repoPath -> last synced Git blob SHA
   offlineQueue: string[]; // vault paths queued when offline
+  themeSynced: boolean;
   lastSyncAt: string;
 }
 
@@ -29,6 +30,7 @@ export const DEFAULT_SETTINGS: PediaNotesPluginSettings = {
   imageFolder: "img",
   baseShas: {},
   offlineQueue: [],
+  themeSynced: false,
   lastSyncAt: "",
 };
 

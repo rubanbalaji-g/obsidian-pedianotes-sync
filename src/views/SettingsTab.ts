@@ -104,6 +104,20 @@ export class SettingsTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Site Theme & Callout Snippets")
+      .setDesc("Apply the matching PediaNotes dark/light theme, accent color, callouts, and table styles to this vault.")
+      .addButton((btn) =>
+        btn.setButtonText("Sync Site Theme").onClick(async () => {
+          try {
+            await this.plugin.engine.syncThemeFromServer();
+            new Notice("✅ Applied PediaNotes site theme & callout snippets!");
+          } catch (err: any) {
+            new Notice(`❌ Theme sync failed: ${err.message}`);
+          }
+        })
+      );
+
+    new Setting(containerEl)
       .setName("Local Image Folder")
       .setDesc("Folder inside this vault where pulled images are saved (e.g. 'img' or 'images').")
       .addText((txt) =>

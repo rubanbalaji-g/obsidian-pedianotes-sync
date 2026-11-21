@@ -183,6 +183,9 @@ export default class PediaNotesSyncPlugin extends Plugin {
     if (!this.settings.token) return;
     try {
       this.setStatusBarText("🔄 PediaNotes: Checking updates...");
+      if (!this.settings.themeSynced) {
+        await this.engine.syncThemeFromServer().catch(() => {});
+      }
       const plan = await this.engine.computeSyncPlan();
       const pullCount = plan.toPullNotes.length + plan.toPullAssets.length;
       if (pullCount > 0) {

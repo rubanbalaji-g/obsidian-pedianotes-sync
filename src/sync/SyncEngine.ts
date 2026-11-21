@@ -447,6 +447,42 @@ export class SyncEngine {
     });
   }
 
+  public async syncThemeFromServer(): Promise<void> {
+    const theme = await this.client.getTheme();
+    const adapter = this.vault.adapter;
+    const configDir = this.vault.configDir || ".obsidian";
+    const snippetsDir = `${configDir}/snippets`;
+
+    if (!(await adapter.exists(snippetsDir))) {
+      await adapter.mkdir(snippetsDir);
+    }
+
+    const enabledNames: string[] = [];
+    for (const [filename, css] of Object.entries(theme.snippets || {})) {
+      if (!css) continue;
+      await adapter.write(`${snippetsDir}/${filename}`, css);
+      enabledNames.push(filename.replace(/\.css$/i, ""));
+    }
+
+    const appearancePath = `${configDir}/appearance.json`;
+    let appearance: any = {};
+    try {
+      if (await adapter.exists(appearancePath)) {
+        appearance = JSON.parse(await adapter.read(appearancePath));
+      }
+    } catch {}
+
+    appearance.accentColor = theme.accentColor || "#10b981";
+    const existingSnippets: string[] = Array.isArray(appearance.enabledCssSnippets)
+      ? appearance.enabledCssSnippets
+      : [];
+    appearance.enabledCssSnippets = Array.from(new Set([...existingSnippets, ...enabledNames]));
+
+    await adapter.write(appearancePath, JSON.stringify(appearance, null, 2));
+    this.settings.themeSynced = true;
+    await this.saveSettings();
+  }
+
   private async ensureFolder(filePath: string) {
     const parts = filePath.split("/");
     parts.pop();

@@ -86,6 +86,23 @@ export class PediaNotesClient {
     return res.json;
   }
 
+  async getTheme(): Promise<{
+    module: string;
+    accentColor: string;
+    snippets: Record<string, string>;
+  }> {
+    const res = await requestUrl({
+      url: `${this.baseUrl()}/_api/plugin/theme`,
+      method: "GET",
+      headers: this.headers(),
+      throw: false,
+    });
+    if (res.status >= 400) {
+      throw new Error(res.json?.error || `Theme fetch failed (${res.status})`);
+    }
+    return res.json;
+  }
+
   async pullFiles(paths: string[]): Promise<PulledFile[]> {
     const all: PulledFile[] = [];
     const CHUNK = 120;

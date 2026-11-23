@@ -6,6 +6,7 @@ import { SyncModal } from "src/views/SyncModal";
 import { NavigationOrderModal } from "src/views/NavigationOrderModal";
 import { SettingsTab } from "src/views/SettingsTab";
 import { confirmVault } from "src/utils/confirmVault";
+import { PullReminderModal } from "src/views/PullReminderModal";
 
 export default class PediaNotesSyncPlugin extends Plugin {
   settings: PediaNotesPluginSettings = DEFAULT_SETTINGS;
@@ -33,9 +34,6 @@ export default class PediaNotesSyncPlugin extends Plugin {
       try {
         const info = await this.verifyAndRefreshAuth();
         new Notice(`✅ Connected to PediaNotes as ${info.name} (${info.email})`);
-        if (this.settings.autoPullOnOpen) {
-          await this.runAutoPull(true);
-        }
       } catch (err: any) {
         new Notice(`❌ Auth verification failed: ${err.message}`);
       }
@@ -149,12 +147,11 @@ export default class PediaNotesSyncPlugin extends Plugin {
       this.flushOfflineQueue();
     });
 
-    // Auto-pull latest notes & images whenever Obsidian opens
+    // Remind users to pull, but never pull automatically on startup.
     this.app.workspace.onLayoutReady(() => {
-      if (this.settings.token && this.settings.autoPullOnOpen) {
-        this.runAutoPull(true);
+      if (this.settings.token) {
+        new PullReminderModal(this.app, this.settings, () => { void this.runAutoPull(false); }).open();
       }
-      this.flushOfflineQueue();
     });
   }
 

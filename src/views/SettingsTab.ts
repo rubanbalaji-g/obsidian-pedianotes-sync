@@ -85,14 +85,8 @@ export class SettingsTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Auto-Pull Updates When Obsidian Opens")
-      .setDesc("When enabled, asks you to confirm the vault and site before pulling updates on startup.")
-      .addToggle((tog) =>
-        tog.setValue(this.plugin.settings.autoPullOnOpen).onChange(async (val) => {
-          this.plugin.settings.autoPullOnOpen = val;
-          await this.plugin.saveSettings();
-        })
-      );
+      .setName("Startup pull reminder")
+      .setDesc("When signed in, a dismissible reminder appears on startup. Notes are pulled only when you choose to pull and confirm the vault.");
 
     new Setting(containerEl)
       .setName("Publish All Notes (Ignore 'publish: true' Filter)")

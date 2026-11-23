@@ -1,6 +1,6 @@
 {
   "name": "obsidian-pedianotes-sync",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Two-way Obsidian collaborator sync plugin for PediaNotes (Theory, Practicals, OSCE) with PediaNotes SSO login.",
   "main": "main.js",
   "scripts": {

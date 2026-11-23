@@ -86,6 +86,21 @@ export class PediaNotesClient {
     return res.json;
   }
 
+  async replaceCanonicalNotes(files: PushFilePayload[]): Promise<{
+    success: boolean; backupBranch: string; commit: string;
+    count: number; refreshed: boolean; build?: { ok: boolean };
+  }> {
+    const res = await requestUrl({
+      url: `${this.baseUrl()}/_api/plugin/canonical`,
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify({ confirm: "REPLACE_PUBLISHED_NOTES", files }),
+      throw: false,
+    });
+    if (res.status >= 400) throw new Error(res.json?.error || `Canonical replacement failed (${res.status})`);
+    return res.json;
+  }
+
   async getTheme(): Promise<{
     module: string;
     accentColor: string;

@@ -218,6 +218,32 @@ export class SyncModal extends Modal {
 
     const actions = contentEl.createEl("div", { cls: "pn-actions-row" });
 
+    if (plan.isAdmin && this.settings.module === "po") {
+      const canonicalBtn = actions.createEl("button", { text: "Treat vault as canonical" });
+      canonicalBtn.addEventListener("click", async () => {
+        const confirmation = window.prompt(
+          "ADMIN ACTION: This first creates a GitHub backup branch, then replaces ALL P&O clinical Markdown notes with vault notes marked publish: true. Existing server-only notes will be removed from main. Site layouts and assets are preserved. This cannot be undone automatically.\n\nType REPLACE to continue:"
+        );
+        if (confirmation !== "REPLACE") return;
+        canonicalBtn.disabled = true;
+        canonicalBtn.textContent = "Creating backup and replacing notes...";
+        try {
+          const result = await this.engine.replaceCanonicalNotes();
+          if (!result.refreshed || !result.build?.ok) {
+            new Notice(`GitHub updated; server refresh/build needs attention. Backup: ${result.backupBranch}`, 15000);
+          } else {
+            new Notice(`Canonical replacement complete. Backup: ${result.backupBranch}`, 15000);
+          }
+          if (this.onSyncComplete) this.onSyncComplete();
+          await this.render();
+        } catch (err: any) {
+          new Notice(`Canonical replacement failed: ${err.message}`, 15000);
+          canonicalBtn.disabled = false;
+          canonicalBtn.textContent = "Treat vault as canonical";
+        }
+      });
+    }
+
     if (pullTotal > 0) {
       const pullBtn = actions.createEl("button", { text: `⬇️ Pull ${pullTotal} Updates` });
       pullBtn.addEventListener("click", async () => {

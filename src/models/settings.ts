@@ -1,4 +1,4 @@
-export type PediaModule = "theory" | "practical" | "osce";
+export type PediaModule = "theory" | "practical" | "osce" | "po";
 
 export interface PediaNotesPluginSettings {
   token: string;
@@ -38,6 +38,7 @@ export const MODULE_URLS: Record<PediaModule, string> = {
   theory: "https://theory.pedianotes.in",
   practical: "https://practical.pedianotes.in",
   osce: "https://osce.pedianotes.in",
+  po: "https://practical2.pedianotes.in",
 };
 
 export const AUTH_PORTAL_URL = "https://auth.pedianotes.in";

@@ -32,7 +32,7 @@ export default class PediaNotesSyncPlugin extends Plugin {
       try {
         const info = await this.verifyAndRefreshAuth();
         new Notice(`✅ Connected to PediaNotes as ${info.name} (${info.email})`);
-        if (this.settings.autoPullOnOpen) {
+          if (this.settings.module !== "po" && this.settings.autoPullOnOpen) {
           await this.runAutoPull(true);
         }
       } catch (err: any) {
@@ -149,7 +149,7 @@ export default class PediaNotesSyncPlugin extends Plugin {
 
     // Auto-pull latest notes & images whenever Obsidian opens
     this.app.workspace.onLayoutReady(() => {
-      if (this.settings.token && this.settings.autoPullOnOpen) {
+      if (this.settings.module !== "po" && this.settings.token && this.settings.autoPullOnOpen) {
         this.runAutoPull(true);
       }
       this.flushOfflineQueue();

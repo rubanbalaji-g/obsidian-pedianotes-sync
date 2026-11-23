@@ -4,7 +4,7 @@ import { PediaNotesPluginSettings } from "src/models/settings";
 import { PediaNotesClient, PushFilePayload, RemoteManifestFile } from "src/api/PediaNotesClient";
 import { CompiledNote, NoteCompiler } from "src/compiler/NoteCompiler";
 import { collectImageRefs } from "src/utils/imageCollector";
-import { computeGitBlobShaFromText } from "src/sync/Hasher";
+import { computeGitBlobShaFromBytes, computeGitBlobShaFromText } from "src/sync/Hasher";
 
 export interface ConflictItem {
   repoPath: string;
@@ -39,13 +39,22 @@ export class SyncEngine {
     private settings: PediaNotesPluginSettings,
     private saveSettings: () => Promise<void>
   ) {
-    this.compiler = new NoteCompiler(vault, metadataCache);
+    this.compiler = new NoteCompiler(vault, metadataCache, settings.module === "po");
     this.client = new PediaNotesClient(settings);
   }
 
   public updateSettings(settings: PediaNotesPluginSettings) {
     this.settings = settings;
+    this.compiler = new NoteCompiler(this.vault, this.metadataCache, settings.module === "po");
     this.client = new PediaNotesClient(settings);
+  }
+
+  private assetRepoPath(file: TFile): string {
+    const filePath = file.path.replace(/\\/g, "/");
+    const imageFolder = (this.settings.imageFolder || "img").replace(/\/+$/, "");
+    return this.settings.module === "po" && filePath.startsWith(`${imageFolder}/`)
+      ? `static/img/${filePath.slice(imageFolder.length + 1)}`
+      : `static/img/${file.name}`;
   }
 
   public getPublishableFiles(): TFile[] {
@@ -55,6 +64,41 @@ export class SyncEngine {
       const fm = this.metadataCache.getCache(file.path)?.frontmatter;
       return fm?.["publish"] === true;
     });
+  }
+
+  public async replaceCanonicalNotes() {
+    if (this.settings.module !== "po") throw new Error("Select the P&O module first.");
+    const manifest = await this.client.getManifest();
+    if (!manifest.isAdmin) throw new Error("Only an admin can perform canonical replacement.");
+    const notes = this.vault.getMarkdownFiles().filter((file) =>
+      !file.path.startsWith(".obsidian/") && !file.path.startsWith("_trash/") &&
+      this.metadataCache.getCache(file.path)?.frontmatter?.["publish"] === true
+    );
+    if (!notes.length) throw new Error("No publish: true notes found. Nothing was changed.");
+    const files: PushFilePayload[] = [];
+    for (const file of notes) {
+      const compiled = await this.compiler.compile(file);
+      files.push({ path: compiled.repoPath, content: compiled.content, encoding: "utf-8" });
+    }
+    const result = await this.client.replaceCanonicalNotes(files);
+    if (result.refreshed) {
+      try {
+        const fresh = await this.client.getManifest();
+        const expected = new Set(files.map((file) => file.path));
+        for (const key of Object.keys(this.settings.baseShas)) {
+          if (key.startsWith("content/")) delete this.settings.baseShas[key];
+        }
+        for (const entry of fresh.files) {
+          if (expected.has(entry.path)) this.settings.baseShas[entry.path] = entry.sha;
+        }
+        this.settings.lastSyncAt = new Date().toISOString();
+        await this.saveSettings();
+      } catch (error) {
+        // GitHub has already changed. Do not report an aborted replacement.
+        console.warn("Canonical replacement succeeded, but sync state could not be refreshed", error);
+      }
+    }
+    return result;
   }
 
   private mapRepoPathToVaultPath(
@@ -100,7 +144,7 @@ export class SyncEngine {
       const raw = await this.vault.cachedRead(file);
       for (const ref of collectImageRefs(raw, this.vault)) {
         if (ref.file) {
-          const repoImgPath = `static/img/${ref.file.name}`;
+          const repoImgPath = this.assetRepoPath(ref.file);
           if (!referencedImages.has(repoImgPath)) {
             referencedImages.set(repoImgPath, ref.file);
           }
@@ -134,10 +178,10 @@ export class SyncEngine {
       }
 
       // Remote SHA differs from Local SHA: check 3-way baseSha
-      if (!baseSha || baseSha === remote.sha) {
+      if ((!baseSha && this.settings.module !== "po") || baseSha === remote.sha) {
         // Server unchanged since last pull -> safe local edit to push
         modifiedLocalNotes.push(compiled);
-      } else if (baseSha === sha) {
+      } else if (baseSha === sha && this.settings.module !== "po") {
         // Local unchanged since last pull, server updated -> safe to pull
         toPullNotes.push(remote);
       } else {
@@ -193,7 +237,10 @@ export class SyncEngine {
     const imagesToUpload: Array<{ repoPath: string; file: TFile }> = [];
     for (const [repoImgPath, file] of referencedImages.entries()) {
       const altPath = repoImgPath.replace(/^static\/img\//, "static/images/");
-      if (!remoteMap.has(repoImgPath) && !remoteMap.has(altPath)) {
+      const remote = remoteMap.get(repoImgPath);
+      const changed = this.settings.module === "po" && remote &&
+        await computeGitBlobShaFromBytes(new Uint8Array(await this.vault.readBinary(file))) !== remote.sha;
+      if (changed || (!remote && !remoteMap.has(altPath))) {
         imagesToUpload.push({ repoPath: repoImgPath, file });
       }
     }
@@ -314,6 +361,9 @@ export class SyncEngine {
   }
 
   public async pullAllFromServer(onProgress?: (done: number, total: number) => void): Promise<number> {
+    if (this.settings.module === "po") {
+      throw new Error("Pull all is disabled for P&O: this vault is the source of truth.");
+    }
     const manifest = await this.client.getManifest();
     const allPaths = (manifest.files || []).map((f) => f.path);
     if (allPaths.length === 0) return 0;
@@ -364,7 +414,7 @@ export class SyncEngine {
     const total = notes.length + images.length + deletes.length;
     let prep = 0;
 
-    for (const note of notes) {
+    for (const note of this.settings.module === "po" ? [] : notes) {
       files.push({
         path: note.repoPath,
         content: note.content,
@@ -439,7 +489,7 @@ export class SyncEngine {
     const images: Array<{ repoPath: string; file: TFile }> = [];
     for (const r of refs) {
       if (r.file) {
-        images.push({ repoPath: `static/img/${r.file.name}`, file: r.file });
+        images.push({ repoPath: this.assetRepoPath(r.file), file: r.file });
       }
     }
     return this.pushToServer([compiled], images, {

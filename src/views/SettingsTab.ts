@@ -76,6 +76,7 @@ export class SettingsTab extends PluginSettingTab {
         dd.addOption("theory", "DNB Theory (theory.pedianotes.in)");
         dd.addOption("practical", "DNB Practicals (practical.pedianotes.in)");
         dd.addOption("osce", "DNB OSCE (osce.pedianotes.in)");
+        dd.addOption("po", "P&O (Practicals & OSCE) (practical2.pedianotes.in)");
         dd.setValue(this.plugin.settings.module);
         dd.onChange(async (val) => {
           this.plugin.settings.module = val as PediaModule;

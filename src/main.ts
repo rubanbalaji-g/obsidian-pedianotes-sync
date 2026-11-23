@@ -81,7 +81,7 @@ export default class PediaNotesSyncPlugin extends Plugin {
       id: "pull-all-from-pedianotes",
       name: "Pull All Notes & Images from PediaNotes Server",
       callback: async () => {
-        if (!confirmVault(this.app, this.settings, "pulling all notes and images (existing local files may be overwritten)")) return;
+        if (!(await confirmVault(this.app, this.settings, "pulling all notes and images (existing local files may be overwritten)"))) return;
         new Notice("⬇️ Pulling all notes & images from PediaNotes...");
         try {
           const count = await this.engine.pullAllFromServer();
@@ -180,7 +180,7 @@ export default class PediaNotesSyncPlugin extends Plugin {
 
   private async runAutoPull(silentIfClean: boolean) {
     if (!this.settings.token) return;
-    if (!confirmVault(this.app, this.settings, "pulling updates")) return;
+    if (!(await confirmVault(this.app, this.settings, "pulling updates"))) return;
     try {
       this.setStatusBarText("🔄 PediaNotes: Checking updates...");
       if (!this.settings.themeSynced) {
@@ -214,7 +214,7 @@ export default class PediaNotesSyncPlugin extends Plugin {
       new Notice("Please sign in to PediaNotes in plugin settings first.");
       return;
     }
-    if (!confirmVault(this.app, this.settings, `publishing "${file.path}"`)) return;
+    if (!(await confirmVault(this.app, this.settings, `publishing "${file.path}"`))) return;
     const fm = this.app.metadataCache.getCache(file.path)?.frontmatter;
     if (!this.settings.publishAllNotes && fm?.["publish"] !== true) {
       await this.app.fileManager.processFrontMatter(file, (f) => {
@@ -244,7 +244,7 @@ export default class PediaNotesSyncPlugin extends Plugin {
 
   private async flushOfflineQueue() {
     if (!this.settings.token || !navigator.onLine || !this.settings.offlineQueue?.length) return;
-    if (!confirmVault(this.app, this.settings, `publishing ${this.settings.offlineQueue.length} queued note(s)`)) return;
+    if (!(await confirmVault(this.app, this.settings, `publishing ${this.settings.offlineQueue.length} queued note(s)`))) return;
     const queue = [...this.settings.offlineQueue];
     const remaining: string[] = [];
     for (const filePath of queue) {

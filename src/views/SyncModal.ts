@@ -81,7 +81,7 @@ export class SyncModal extends Modal {
         row.createEl("span", { text: c.vaultPath });
         const btns = row.createEl("div", { attr: { style: "display:flex;gap:4px;" } });
 
-        const bDiff = btns.createEl("button", { text: "View Diff" });
+        const bDiff = btns.createEl("button", { text: "Diff" });
         bDiff.addEventListener("click", async () => {
           bDiff.disabled = true;
           bDiff.textContent = "Loading...";
@@ -92,11 +92,11 @@ export class SyncModal extends Modal {
             new Notice(`Could not load diff: ${err.message}`);
           } finally {
             bDiff.disabled = false;
-            bDiff.textContent = "View Diff";
+            bDiff.textContent = "Diff";
           }
         });
 
-        const bServer = btns.createEl("button", { text: "Keep Server" });
+        const bServer = btns.createEl("button", { text: "Server" });
         bServer.addEventListener("click", async () => {
           if (!confirmVault(this.app, this.settings, `replacing "${c.vaultPath}" with the server version`)) return;
           await this.engine.resolveConflictKeepServer(c, plan);
@@ -104,12 +104,33 @@ export class SyncModal extends Modal {
           await this.render();
         });
 
-        const bCopy = btns.createEl("button", { text: "Save Copy" });
+        const bLocal = btns.createEl("button", { text: "Local" });
+        bLocal.addEventListener("click", async () => {
+          if (!confirmVault(this.app, this.settings, `replacing the server version of "${c.vaultPath}" with this vault's version`)) return;
+          bLocal.disabled = true;
+          try {
+            await this.engine.resolveConflictKeepLocal(c);
+            new Notice(`Published local version of ${c.vaultPath}`);
+            if (this.onSyncComplete) this.onSyncComplete();
+            await this.render();
+          } catch (err: any) {
+            new Notice(`Could not publish local version: ${err.message}`);
+            bLocal.disabled = false;
+          }
+        });
+
+        const bCopy = btns.createEl("button", { text: "Both" });
         bCopy.addEventListener("click", async () => {
           if (!confirmVault(this.app, this.settings, `resolving the conflict for "${c.vaultPath}"`)) return;
-          const copyPath = await this.engine.resolveConflictSaveCopy(c);
-          new Notice(`Saved local copy at ${copyPath}`);
-          await this.render();
+          bCopy.disabled = true;
+          try {
+            const copyPath = await this.engine.resolveConflictSaveCopy(c);
+            new Notice(`Saved local backup at ${copyPath}; kept server version at original path`);
+            await this.render();
+          } catch (err: any) {
+            new Notice(`Could not keep both versions: ${err.message}`);
+            bCopy.disabled = false;
+          }
         });
       }
     }

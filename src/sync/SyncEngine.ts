@@ -59,7 +59,7 @@ export class SyncEngine {
 
   public getPublishableFiles(): TFile[] {
     return this.vault.getMarkdownFiles().filter((file) => {
-      if (file.path.startsWith(".obsidian/") || file.path.startsWith("_trash/")) return false;
+      if (file.path.startsWith(".obsidian/") || file.path.startsWith("_trash/") || /\.bkup(?:-\d+)?\.md$/i.test(file.path)) return false;
       if (this.settings.publishAllNotes) return true;
       const fm = this.metadataCache.getCache(file.path)?.frontmatter;
       return fm?.["publish"] === true;
@@ -71,7 +71,7 @@ export class SyncEngine {
     const manifest = await this.client.getManifest();
     if (!manifest.isAdmin) throw new Error("Only an admin can perform canonical replacement.");
     const notes = this.vault.getMarkdownFiles().filter((file) =>
-      !file.path.startsWith(".obsidian/") && !file.path.startsWith("_trash/") &&
+      !file.path.startsWith(".obsidian/") && !file.path.startsWith("_trash/") && !/\.bkup(?:-\d+)?\.md$/i.test(file.path) &&
       this.metadataCache.getCache(file.path)?.frontmatter?.["publish"] === true
     );
     if (!notes.length) throw new Error("No publish: true notes found. Nothing was changed.");
@@ -314,28 +314,44 @@ export class SyncEngine {
   }
 
   public async resolveConflictSaveCopy(conflict: ConflictItem): Promise<string> {
-    const copyPath = conflict.vaultPath.replace(/\.md$/i, ` (Conflict ${Date.now()}).md`);
-    let raw = await this.vault.read(conflict.compiled.file);
-    // Ensure the conflict copy has publish: false so it is never accidentally published
-    const fmMatch = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
-    if (fmMatch) {
-      const fmLines = fmMatch[1]
-        .split(/\r?\n/)
-        .filter((l) => !/^\s*publish:\s*/i.test(l));
-      fmLines.unshift("publish: false");
-      raw = `---\n${fmLines.join("\n")}\n---\n${raw.slice(fmMatch[0].length)}`;
-    } else {
-      raw = `---\npublish: false\n---\n${raw}`;
-    }
-
-    await this.vault.create(copyPath, raw);
     const pulled = await this.client.pullFiles([conflict.repoPath]);
-    if (pulled.length > 0) {
-      await this.vault.modify(conflict.compiled.file, pulled[0].content);
-      this.settings.baseShas[conflict.repoPath] = pulled[0].sha;
-      await this.saveSettings();
+    if (!pulled.length) throw new Error("Could not retrieve the server version; no local files were changed.");
+    const base = conflict.vaultPath.replace(/\.md$/i, "");
+    let copyPath = `${base}.bkup.md`;
+    let suffix = 1;
+    while (this.vault.getAbstractFileByPath(copyPath)) {
+      copyPath = `${base}.bkup-${suffix++}.md`;
     }
+    const raw = await this.vault.read(conflict.compiled.file);
+    await this.vault.create(copyPath, raw);
+    await this.vault.modify(conflict.compiled.file, pulled[0].content);
+    this.settings.baseShas[conflict.repoPath] = pulled[0].sha;
+    await this.saveSettings();
     return copyPath;
+  }
+
+  public async resolveConflictKeepLocal(conflict: ConflictItem) {
+    // Recompile at click time so edits made since the sync plan are included.
+    const compiled = await this.compiler.compile(conflict.compiled.file);
+    const current = await this.client.getManifest();
+    const remote = (current.files || []).find((file) => file.path === compiled.repoPath);
+    if (!remote || remote.sha !== conflict.serverSha) {
+      throw new Error("The server note changed since this conflict was displayed. Refresh the sync center and review it again.");
+    }
+    // Supply the observed server SHA; the server rejects a concurrent edit.
+    const previousBase = this.settings.baseShas[compiled.repoPath];
+    this.settings.baseShas[compiled.repoPath] = remote.sha;
+    try {
+      const raw = await this.vault.cachedRead(compiled.file);
+      const images = collectImageRefs(raw, this.vault)
+        .filter((ref): ref is typeof ref & { file: TFile } => Boolean(ref.file))
+        .map((ref) => ({ repoPath: this.assetRepoPath(ref.file), file: ref.file }));
+      return await this.pushToServer([compiled], images, { commitMessage: `Resolve conflict: keep ${compiled.file.basename} from vault` });
+    } catch (error) {
+      if (previousBase === undefined) delete this.settings.baseShas[compiled.repoPath];
+      else this.settings.baseShas[compiled.repoPath] = previousBase;
+      throw error;
+    }
   }
 
   public async fetchServerText(repoPath: string): Promise<string> {

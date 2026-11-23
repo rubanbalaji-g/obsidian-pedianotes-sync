@@ -1,6 +1,7 @@
 import { App, Modal, Notice } from "obsidian";
 import { AUTH_PORTAL_URL, MODULE_URLS, PediaNotesPluginSettings } from "src/models/settings";
 import { ConflictItem, SyncEngine, SyncPlan } from "src/sync/SyncEngine";
+import { confirmVault } from "src/utils/confirmVault";
 
 export class SyncModal extends Modal {
   constructor(
@@ -97,6 +98,7 @@ export class SyncModal extends Modal {
 
         const bServer = btns.createEl("button", { text: "Keep Server" });
         bServer.addEventListener("click", async () => {
+          if (!confirmVault(this.app, this.settings, `replacing "${c.vaultPath}" with the server version`)) return;
           await this.engine.resolveConflictKeepServer(c, plan);
           new Notice(`Updated ${c.vaultPath} from server`);
           await this.render();
@@ -104,6 +106,7 @@ export class SyncModal extends Modal {
 
         const bCopy = btns.createEl("button", { text: "Save Copy" });
         bCopy.addEventListener("click", async () => {
+          if (!confirmVault(this.app, this.settings, `resolving the conflict for "${c.vaultPath}"`)) return;
           const copyPath = await this.engine.resolveConflictSaveCopy(c);
           new Notice(`Saved local copy at ${copyPath}`);
           await this.render();
@@ -221,6 +224,7 @@ export class SyncModal extends Modal {
     if (plan.isAdmin && this.settings.module === "po") {
       const canonicalBtn = actions.createEl("button", { text: "Treat vault as canonical" });
       canonicalBtn.addEventListener("click", async () => {
+        if (!confirmVault(this.app, this.settings, "replacing server notes from this vault")) return;
         const confirmation = window.prompt(
           "ADMIN ACTION: This first creates a GitHub backup branch, then replaces ALL P&O clinical Markdown notes with vault notes marked publish: true. Existing server-only notes will be removed from main. Site layouts and assets are preserved. This cannot be undone automatically.\n\nType REPLACE to continue:"
         );
@@ -247,6 +251,7 @@ export class SyncModal extends Modal {
     if (pullTotal > 0) {
       const pullBtn = actions.createEl("button", { text: `⬇️ Pull ${pullTotal} Updates` });
       pullBtn.addEventListener("click", async () => {
+        if (!confirmVault(this.app, this.settings, `pulling ${pullTotal} updates`)) return;
         pullBtn.disabled = true;
         progressWrap.style.display = "block";
         try {
@@ -269,6 +274,7 @@ export class SyncModal extends Modal {
         cls: "mod-cta",
       });
       pushBtn.addEventListener("click", async () => {
+        if (!confirmVault(this.app, this.settings, "publishing vault changes")) return;
         pushBtn.disabled = true;
         pushBtn.textContent = "Publishing & Rebuilding...";
         progressWrap.style.display = "block";
@@ -300,6 +306,7 @@ export class SyncModal extends Modal {
 
     const pullAllBtn = actions.createEl("button", { text: "⬇️ Pull All from Server" });
     pullAllBtn.addEventListener("click", async () => {
+      if (!confirmVault(this.app, this.settings, "pulling all notes and images (existing local files may be overwritten)")) return;
       pullAllBtn.disabled = true;
       pullAllBtn.textContent = "Pulling All...";
       progressWrap.style.display = "block";

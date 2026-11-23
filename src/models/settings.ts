@@ -25,7 +25,7 @@ export const DEFAULT_SETTINGS: PediaNotesPluginSettings = {
   isAdmin: false,
   allowedModules: [],
   module: "theory",
-  autoPullOnOpen: true,
+  autoPullOnOpen: false,
   publishAllNotes: false,
   imageFolder: "img",
   baseShas: {},

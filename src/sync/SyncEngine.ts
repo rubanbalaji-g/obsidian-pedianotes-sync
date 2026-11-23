@@ -361,9 +361,6 @@ export class SyncEngine {
   }
 
   public async pullAllFromServer(onProgress?: (done: number, total: number) => void): Promise<number> {
-    if (this.settings.module === "po") {
-      throw new Error("Pull all is disabled for P&O: this vault is the source of truth.");
-    }
     const manifest = await this.client.getManifest();
     const allPaths = (manifest.files || []).map((f) => f.path);
     if (allPaths.length === 0) return 0;

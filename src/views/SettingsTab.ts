@@ -61,7 +61,7 @@ export class SettingsTab extends PluginSettingTab {
       .setDesc("Name shown as 'By <Your Name>' on notes you edit or create.")
       .addText((txt) =>
         txt
-          .setPlaceholder(this.plugin.settings.userName || "e.g. Dr. Priya S")
+          .setPlaceholder(this.plugin.settings.userName || "Your name")
           .setValue(this.plugin.settings.displayName)
           .onChange(async (val) => {
             this.plugin.settings.displayName = val.trim();
@@ -86,7 +86,7 @@ export class SettingsTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Auto-Pull Updates When Obsidian Opens")
-      .setDesc("Recommended: Automatically pulls latest notes from the web editor & other collaborators on startup.")
+      .setDesc("When enabled, asks you to confirm the vault and site before pulling updates on startup.")
       .addToggle((tog) =>
         tog.setValue(this.plugin.settings.autoPullOnOpen).onChange(async (val) => {
           this.plugin.settings.autoPullOnOpen = val;

@@ -316,11 +316,17 @@ export class SyncEngine {
   public async resolveConflictSaveCopy(conflict: ConflictItem): Promise<string> {
     const pulled = await this.client.pullFiles([conflict.repoPath]);
     if (!pulled.length) throw new Error("Could not retrieve the server version; no local files were changed.");
-    const base = conflict.vaultPath.replace(/\.md$/i, "");
-    let copyPath = `${base}.bkup.md`;
-    let suffix = 1;
-    while (this.vault.getAbstractFileByPath(copyPath)) {
-      copyPath = `${base}.bkup-${suffix++}.md`;
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Kolkata",
+      year: "2-digit", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+    }).formatToParts(new Date());
+    const part = (type: string) => parts.find((item) => item.type === type)?.value || "";
+    const timestamp = ["year", "month", "day", "hour", "minute", "second"].map(part).join("");
+    if (!/^\d{12}$/.test(timestamp)) throw new Error("Could not generate an IST backup timestamp.");
+    const copyPath = `${conflict.vaultPath}.${timestamp}.bkup`;
+    if (await this.vault.adapter.exists(copyPath)) {
+      throw new Error(`Backup ${copyPath} already exists. Please try again in a moment.`);
     }
     const raw = await this.vault.read(conflict.compiled.file);
     await this.vault.create(copyPath, raw);

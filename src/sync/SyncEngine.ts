@@ -433,7 +433,7 @@ export class SyncEngine {
     const total = notes.length + images.length + deletes.length;
     let prep = 0;
 
-    for (const note of this.settings.module === "po" ? [] : notes) {
+    for (const note of notes) {
       files.push({
         path: note.repoPath,
         content: note.content,
@@ -475,7 +475,7 @@ export class SyncEngine {
     // Sync local note frontmatter with server's updated_at / updated_by so Modified counter resets to 0
     const nowIso = new Date().toISOString();
     const author = this.settings.displayName || this.settings.userName || this.settings.userEmail || "Rubanbalaji G";
-    for (const note of notes) {
+    for (const note of this.settings.module === "po" ? [] : notes) {
       try {
         const raw = await this.vault.read(note.file);
         const norm = raw.replace(/\r\n/g, "\n");

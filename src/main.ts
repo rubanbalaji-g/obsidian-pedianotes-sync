@@ -1,4 +1,4 @@
-import { Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { Notice, Plugin, setIcon, TFile, WorkspaceLeaf } from "obsidian";
 import { DEFAULT_SETTINGS, MODULE_URLS, PediaNotesPluginSettings } from "src/models/settings";
 import { PediaNotesClient } from "src/api/PediaNotesClient";
 import { SyncEngine } from "src/sync/SyncEngine";
@@ -349,12 +349,15 @@ export default class PediaNotesSyncPlugin extends Plugin {
 
   private updateStatusBar() {
     if (!this.statusBarItem) return;
+    this.statusBarItem.empty();
     if (!this.settings.token) {
       this.statusBarItem.setText("🔒 PediaNotes: Sign In");
       return;
     }
     const mod = this.settings.module.toUpperCase();
     const count = this.engine?.getPublishableFiles().length ?? 0;
-    this.statusBarItem.setText(`🩺 PediaNotes (${mod}): ${count}`);
+    const iconEl = this.statusBarItem.createSpan({ cls: "pn-status-icon" });
+    setIcon(iconEl, "cross");
+    this.statusBarItem.createSpan({ text: `PediaNotes (${mod}): ${count}` });
   }
 }

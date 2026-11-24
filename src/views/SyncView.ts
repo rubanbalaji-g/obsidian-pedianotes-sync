@@ -370,10 +370,27 @@ export class SyncView extends ItemView {
       });
 
       const publishRow = mainPane.createEl("div", { cls: "pn-main-publish-row" });
+      let ignorePullCb: HTMLInputElement | null = null;
+      if (pullTotal > 0) {
+        const ignoreWrap = publishRow.createEl("label", {
+          attr: { style: "display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#fbbf24;cursor:pointer;margin-right:auto;" },
+        });
+        ignorePullCb = ignoreWrap.createEl("input", { type: "checkbox" });
+        ignoreWrap.createSpan({
+          text: `Ignore pending pull (${pullTotal} update${pullTotal === 1 ? "" : "s"}) and publish anyway`,
+        });
+      }
+
       const pushBtn = publishRow.createEl("button", {
         text: `🚀 Publish (${pushNotes.length} + ${plan.remoteDeletes.length} remove)`,
         cls: "mod-cta",
       });
+      if (ignorePullCb) {
+        pushBtn.disabled = true;
+        ignorePullCb.addEventListener("change", () => {
+          pushBtn.disabled = !ignorePullCb!.checked;
+        });
+      }
       pushBtn.addEventListener("click", async () => {
         if (!(await confirmVault(this.app, this.settings, "publishing vault changes"))) return;
         pushBtn.disabled = true;
@@ -523,7 +540,37 @@ export class SyncView extends ItemView {
       }
     });
 
-    // 5. View site
+    // 5. Delete unused images (save space) — regular action
+    const removeUnused = createActionButton(sideActions, "trash-2", "Delete unused images (save space)");
+    removeUnused.button.addEventListener("click", async () => {
+      removeUnused.button.disabled = true;
+      removeUnused.setLabel("Scanning images...");
+      try {
+        const scan = await findUnusedImages(this.app.vault);
+        if (scan.unused.length === 0) {
+          new Notice(`✨ No unused images found (${scan.totalImages} images scanned).`);
+          return;
+        }
+        const mb = (scan.unusedBytes / (1024 * 1024)).toFixed(2);
+        const ok = await confirmActionModal(
+          this.app,
+          "Delete Unused Images (Save Space)",
+          `Found ${scan.unused.length} unused image(s) (${mb} MB) out of ${scan.totalImages} total images in "${vaultName}". Move them to Obsidian's .trash?`,
+          `Yes, Move ${scan.unused.length} to Trash`
+        );
+        if (!ok) return;
+        const removed = await removeUnusedImages(this.app.vault, scan.unused);
+        new Notice(`✅ Moved ${removed} unused image(s) (${mb} MB) to .trash.`);
+        await this.render();
+      } catch (err: any) {
+        new Notice(`❌ Failed to delete unused images: ${err.message}`);
+      } finally {
+        removeUnused.button.disabled = false;
+        removeUnused.setLabel("Delete unused images (save space)");
+      }
+    });
+
+    // 6. View site
     const viewSite = createActionButton(sideActions, "globe", "View site");
     viewSite.button.addEventListener("click", () => {
       window.open(MODULE_URLS[this.settings.module], "_blank");
@@ -560,37 +607,7 @@ export class SyncView extends ItemView {
         });
       }
 
-      // b. Delete unused images (local vault)
-      const removeUnused = createActionButton(adminActions, "trash-2", "Delete unused images");
-      removeUnused.button.addEventListener("click", async () => {
-        removeUnused.button.disabled = true;
-        removeUnused.setLabel("Scanning images...");
-        try {
-          const scan = await findUnusedImages(this.app.vault);
-          if (scan.unused.length === 0) {
-            new Notice(`✨ No unused images found (${scan.totalImages} images scanned).`);
-            return;
-          }
-          const mb = (scan.unusedBytes / (1024 * 1024)).toFixed(2);
-          const ok = await confirmActionModal(
-            this.app,
-            "Delete Unused Images",
-            `Found ${scan.unused.length} unused image(s) (${mb} MB) out of ${scan.totalImages} total images in "${vaultName}". Move them to Obsidian's .trash?`,
-            `Yes, Move ${scan.unused.length} to Trash`
-          );
-          if (!ok) return;
-          const removed = await removeUnusedImages(this.app.vault, scan.unused);
-          new Notice(`✅ Moved ${removed} unused image(s) (${mb} MB) to .trash.`);
-          await this.render();
-        } catch (err: any) {
-          new Notice(`❌ Failed to delete unused images: ${err.message}`);
-        } finally {
-          removeUnused.button.disabled = false;
-          removeUnused.setLabel("Delete unused images");
-        }
-      });
-
-      // c. Convert all images to WebP (local vault)
+      // b. Convert all images to WebP (local vault)
       const webp = createActionButton(adminActions, "image", "Convert images to WebP");
       webp.button.addEventListener("click", async () => {
         const ok = await confirmActionModal(

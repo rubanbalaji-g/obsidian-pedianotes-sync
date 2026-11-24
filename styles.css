@@ -119,7 +119,23 @@
 }
 
 .pn-status-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   cursor: pointer;
+}
+
+.pn-status-icon {
+  display: inline-flex;
+  align-items: center;
+  color: #ef4444;
+}
+
+.pn-status-icon svg {
+  width: 14px;
+  height: 14px;
+  fill: #ef4444;
+  stroke: #ef4444;
 }
 
 .pn-sync-view {

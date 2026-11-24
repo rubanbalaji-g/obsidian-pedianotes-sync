@@ -518,7 +518,31 @@ export class SyncView extends ItemView {
       window.open(MODULE_URLS[this.settings.module], "_blank");
     });
 
-    // f. Update Vault Kit (plugins, CSS snippets, theme)
+    // f. Check / Update Syncer plugin itself
+    const selfUpdateBtn = sideActions.createEl("button", {
+      text: `🔄 Update Syncer (v${this.plugin.manifest.version})`,
+    });
+    selfUpdateBtn.addEventListener("click", async () => {
+      selfUpdateBtn.disabled = true;
+      selfUpdateBtn.textContent = "Checking for updates...";
+      try {
+        const rel = await checkLatestPluginRelease(this.engine.getClient(), this.plugin.manifest.version);
+        if (!rel) {
+          new Notice(`✅ PediaNotes Sync is already up to date (v${this.plugin.manifest.version}).`);
+          return;
+        }
+        selfUpdateBtn.textContent = `Updating to v${rel.version}...`;
+        await updateSelfAndReload(this.app, this.plugin, rel);
+        new Notice(`✅ Updated PediaNotes Sync to v${rel.version}!`);
+      } catch (err: any) {
+        new Notice(`❌ Syncer update failed: ${err.message}`);
+      } finally {
+        selfUpdateBtn.disabled = false;
+        selfUpdateBtn.textContent = `🔄 Update Syncer (v${this.plugin.manifest.version})`;
+      }
+    });
+
+    // g. Update Vault Kit (plugins, CSS snippets, theme)
     const updateKitBtn = sideActions.createEl("button", { text: "🎨 Update Vault Kit" });
     updateKitBtn.addEventListener("click", async () => {
       updateKitBtn.disabled = true;

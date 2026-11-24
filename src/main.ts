@@ -1,8 +1,8 @@
-import { Notice, Plugin, TFile } from "obsidian";
+import { Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { DEFAULT_SETTINGS, MODULE_URLS, PediaNotesPluginSettings } from "src/models/settings";
 import { PediaNotesClient } from "src/api/PediaNotesClient";
 import { SyncEngine } from "src/sync/SyncEngine";
-import { SyncModal } from "src/views/SyncModal";
+import { SyncView, VIEW_TYPE_PEDIANOTES_SYNC } from "src/views/SyncView";
 import { NavigationOrderModal } from "src/views/NavigationOrderModal";
 import { SettingsTab } from "src/views/SettingsTab";
 import { confirmVault } from "src/utils/confirmVault";
@@ -40,22 +40,27 @@ export default class PediaNotesSyncPlugin extends Plugin {
       }
     });
 
+    this.registerView(
+      VIEW_TYPE_PEDIANOTES_SYNC,
+      (leaf: WorkspaceLeaf) => new SyncView(leaf, this.engine, this.settings, () => this.updateStatusBar())
+    );
+
     this.addRibbonIcon("refresh-cw", "PediaNotes Syncer", () => {
-      new SyncModal(this.app, this.engine, this.settings, () => this.updateStatusBar()).open();
+      void this.openSyncTab();
     });
 
     this.statusBarItem = this.addStatusBarItem();
     this.statusBarItem.addClass("pn-status-bar");
     this.updateStatusBar();
     this.statusBarItem.onClickEvent(() => {
-      new SyncModal(this.app, this.engine, this.settings, () => this.updateStatusBar()).open();
+      void this.openSyncTab();
     });
 
     this.addCommand({
       id: "open-pedianotes-sync-center",
       name: "Open PediaNotes Syncer",
       callback: () => {
-        new SyncModal(this.app, this.engine, this.settings, () => this.updateStatusBar()).open();
+        void this.openSyncTab();
       },
     });
 
@@ -166,6 +171,21 @@ export default class PediaNotesSyncPlugin extends Plugin {
     });
   }
 
+  async openSyncTab() {
+    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_PEDIANOTES_SYNC);
+    let leaf: WorkspaceLeaf;
+    if (existing.length > 0) {
+      leaf = existing[0];
+    } else {
+      leaf = this.app.workspace.getLeaf("tab");
+      await leaf.setViewState({ type: VIEW_TYPE_PEDIANOTES_SYNC, active: true });
+    }
+    this.app.workspace.revealLeaf(leaf);
+    if (leaf.view instanceof SyncView) {
+      await leaf.view.refresh();
+    }
+  }
+
   async loadSettings() {
     const saved = await this.loadData();
     this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
@@ -245,7 +265,7 @@ export default class PediaNotesSyncPlugin extends Plugin {
     } catch (err: any) {
       if (err.status === 409) {
         new Notice("⚠️ Conflict: this note was modified on the server. Opening Sync Center...");
-        new SyncModal(this.app, this.engine, this.settings, () => this.updateStatusBar()).open();
+        void this.openSyncTab();
       } else if (!navigator.onLine || /network|failed to fetch|timeout/i.test(String(err.message))) {
         if (!this.settings.offlineQueue.includes(file.path)) {
           this.settings.offlineQueue.push(file.path);

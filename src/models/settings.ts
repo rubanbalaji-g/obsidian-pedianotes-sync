@@ -15,6 +15,7 @@ export interface PediaNotesPluginSettings {
   module: PediaModule;
   autoPullOnOpen: boolean;
   publishAllNotes: boolean;
+  expandWikilinks: boolean;
   imageFolder: string;
   baseShas: Record<string, string>; // repoPath -> last synced Git blob SHA
   offlineQueue: string[]; // vault paths queued when offline
@@ -33,6 +34,7 @@ export const DEFAULT_SETTINGS: PediaNotesPluginSettings = {
   module: "theory",
   autoPullOnOpen: false,
   publishAllNotes: false,
+  expandWikilinks: true,
   imageFolder: "img",
   baseShas: {},
   offlineQueue: [],

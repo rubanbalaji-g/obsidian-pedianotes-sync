@@ -4,6 +4,7 @@ import { PediaNotesPluginSettings } from "src/models/settings";
 import { PediaNotesClient, PushFilePayload, RemoteManifestFile } from "src/api/PediaNotesClient";
 import { CompiledNote, NoteCompiler } from "src/compiler/NoteCompiler";
 import { collectImageRefs } from "src/utils/imageCollector";
+import { expandWikilinksInFiles } from "src/utils/wikilinks";
 import { computeGitBlobShaFromBytes, computeGitBlobShaFromText } from "src/sync/Hasher";
 
 export interface ConflictItem {
@@ -39,13 +40,23 @@ export class SyncEngine {
     private settings: PediaNotesPluginSettings,
     private saveSettings: () => Promise<void>
   ) {
-    this.compiler = new NoteCompiler(vault, metadataCache, settings.module === "po");
+    this.compiler = new NoteCompiler(
+      vault,
+      metadataCache,
+      settings.module === "po",
+      settings.expandWikilinks !== false
+    );
     this.client = new PediaNotesClient(settings);
   }
 
   public updateSettings(settings: PediaNotesPluginSettings) {
     this.settings = settings;
-    this.compiler = new NoteCompiler(this.vault, this.metadataCache, settings.module === "po");
+    this.compiler = new NoteCompiler(
+      this.vault,
+      this.metadataCache,
+      settings.module === "po",
+      settings.expandWikilinks !== false
+    );
     this.client = new PediaNotesClient(settings);
   }
 
@@ -67,7 +78,9 @@ export class SyncEngine {
   }
 
   public async replaceCanonicalNotes() {
-    if (this.settings.module !== "po") throw new Error("Select the P&O module first.");
+    if (this.settings.module !== "po" && this.settings.module !== "theory") {
+      throw new Error("Select the Theory or P&O module first.");
+    }
     const manifest = await this.client.getManifest();
     if (!manifest.isAdmin) throw new Error("Only an admin can perform canonical replacement.");
     const notes = this.vault.getMarkdownFiles().filter((file) =>
@@ -75,6 +88,9 @@ export class SyncEngine {
       this.metadataCache.getCache(file.path)?.frontmatter?.["publish"] === true
     );
     if (!notes.length) throw new Error("No publish: true notes found. Nothing was changed.");
+    if (this.settings.expandWikilinks !== false) {
+      await expandWikilinksInFiles(this.vault, this.metadataCache, notes);
+    }
     const files: PushFilePayload[] = [];
     for (const file of notes) {
       const compiled = await this.compiler.compile(file);
@@ -456,21 +472,83 @@ export class SyncEngine {
       if (opts?.onProgress) opts.onProgress(Math.floor(prep * 0.4), total);
     }
 
-    const res = await this.client.pushFiles({
-      files,
-      deletes,
-      force: Boolean(opts?.force),
-      commitMessage: opts?.commitMessage,
-      displayName: this.settings.displayName || this.settings.userName || this.settings.userEmail,
-    });
+    if (this.settings.expandWikilinks !== false && notes.length > 0) {
+      await expandWikilinksInFiles(
+        this.vault,
+        this.metadataCache,
+        notes.map((n) => n.file)
+      );
+      for (const note of notes) {
+        const recompiled = await this.compiler.compile(note.file);
+        note.content = recompiled.content;
+        const idx = files.findIndex((f) => f.path === note.repoPath);
+        if (idx !== -1) files[idx].content = recompiled.content;
+      }
+    }
+
+    // Batch uploads into <= 8 MB JSON chunks so large image syncs never exceed server/proxy limits
+    const MAX_BATCH_BYTES = 8 * 1024 * 1024;
+    const batches: PushFilePayload[][] = [];
+    let currentBatch: PushFilePayload[] = [];
+    let currentBytes = 0;
+
+    for (const item of files) {
+      const estBytes = item.path.length + item.content.length + 128;
+      if (currentBatch.length > 0 && currentBytes + estBytes > MAX_BATCH_BYTES) {
+        batches.push(currentBatch);
+        currentBatch = [];
+        currentBytes = 0;
+      }
+      currentBatch.push(item);
+      currentBytes += estBytes;
+    }
+    if (currentBatch.length > 0 || batches.length === 0) {
+      batches.push(currentBatch);
+    }
+
+    const displayName = this.settings.displayName || this.settings.userName || this.settings.userEmail;
+    let totalUploaded = 0;
+    let totalDeleted = 0;
+    let lastBuild: { ok?: boolean; ms?: number } | undefined;
+    let uploadedSoFar = 0;
+
+    for (let i = 0; i < batches.length; i++) {
+      const isLast = i === batches.length - 1;
+      const batch = batches[i];
+      const batchRes = await this.client.pushFiles({
+        files: batch,
+        deletes: isLast ? deletes : [],
+        force: Boolean(opts?.force),
+        commitMessage: opts?.commitMessage,
+        displayName,
+      });
+
+      totalUploaded += batchRes.uploadedCount || 0;
+      totalDeleted += batchRes.deletedCount || 0;
+      if (batchRes.build) lastBuild = batchRes.build;
+
+      for (const [p, sha] of Object.entries(batchRes.updatedShas || {})) {
+        this.settings.baseShas[p] = sha;
+      }
+
+      uploadedSoFar += batch.length;
+      if (opts?.onProgress) {
+        const pct = Math.floor(total * 0.4) + Math.floor((uploadedSoFar / Math.max(files.length, 1)) * Math.ceil(total * 0.55));
+        opts.onProgress(Math.min(pct, total), total);
+      }
+    }
 
     for (const delPath of deletes) {
       delete this.settings.baseShas[delPath];
     }
 
-    for (const [p, sha] of Object.entries(res.updatedShas || {})) {
-      this.settings.baseShas[p] = sha;
-    }
+    const res = {
+      success: true,
+      uploadedCount: totalUploaded,
+      deletedCount: totalDeleted,
+      updatedShas: {} as Record<string, string>,
+      build: lastBuild,
+    };
 
     // Sync local note frontmatter with server's updated_at / updated_by so Modified counter resets to 0
     const nowIso = new Date().toISOString();
@@ -502,6 +580,9 @@ export class SyncEngine {
   }
 
   public async publishSingleNote(file: TFile) {
+    if (this.settings.expandWikilinks !== false) {
+      await expandWikilinksInFiles(this.vault, this.metadataCache, [file]);
+    }
     const compiled = await this.compiler.compile(file);
     const raw = await this.vault.cachedRead(file);
     const refs = collectImageRefs(raw, this.vault);

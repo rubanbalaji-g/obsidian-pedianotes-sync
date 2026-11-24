@@ -113,6 +113,16 @@ export class SettingsTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Expand Wikilinks to Full Vault Paths")
+      .setDesc("Automatically convert [[wikilink]] to [[full/path/to/wikilink]] in both local vault notes and uploaded server content.")
+      .addToggle((tog) =>
+        tog.setValue(this.plugin.settings.expandWikilinks !== false).onChange(async (val) => {
+          this.plugin.settings.expandWikilinks = val;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
       .setName("Site Theme & Callout Snippets")
       .setDesc("Apply the matching PediaNotes dark/light theme, accent color, callouts, and table styles to this vault.")
       .addButton((btn) =>

@@ -56,6 +56,20 @@ export class PediaNotesClient {
     };
   }
 
+  private safeJson(res: { status: number; text?: string; json?: any }): any {
+    try {
+      return res.json;
+    } catch {
+      const txt = String(res.text || "").trim();
+      return txt ? { error: txt.slice(0, 300) } : null;
+    }
+  }
+
+  private errorMessage(res: { status: number; text?: string; json?: any }, fallback: string): string {
+    const data = this.safeJson(res);
+    return data?.error || `${fallback} (HTTP ${res.status})`;
+  }
+
   async ping(): Promise<PingResult> {
     const res = await requestUrl({
       url: `${this.baseUrl()}/_api/plugin/ping`,
@@ -64,10 +78,9 @@ export class PediaNotesClient {
       throw: false,
     });
     if (res.status >= 400) {
-      const msg = res.json?.error || `Auth failed (${res.status})`;
-      throw new Error(msg);
+      throw new Error(this.errorMessage(res, "Auth failed"));
     }
-    return res.json as PingResult;
+    return this.safeJson(res) as PingResult;
   }
 
   async getManifest(): Promise<{
@@ -83,9 +96,9 @@ export class PediaNotesClient {
       throw: false,
     });
     if (res.status >= 400) {
-      throw new Error(res.json?.error || `Manifest fetch failed (${res.status})`);
+      throw new Error(this.errorMessage(res, "Manifest fetch failed"));
     }
-    return res.json;
+    return this.safeJson(res);
   }
 
   async replaceCanonicalNotes(files: PushFilePayload[]): Promise<{
@@ -99,8 +112,8 @@ export class PediaNotesClient {
       body: JSON.stringify({ confirm: "REPLACE_PUBLISHED_NOTES", files }),
       throw: false,
     });
-    if (res.status >= 400) throw new Error(res.json?.error || `Canonical replacement failed (${res.status})`);
-    return res.json;
+    if (res.status >= 400) throw new Error(this.errorMessage(res, "Canonical replacement failed"));
+    return this.safeJson(res);
   }
 
   async getTheme(): Promise<{
@@ -115,9 +128,9 @@ export class PediaNotesClient {
       throw: false,
     });
     if (res.status >= 400) {
-      throw new Error(res.json?.error || `Theme fetch failed (${res.status})`);
+      throw new Error(this.errorMessage(res, "Theme fetch failed"));
     }
-    return res.json;
+    return this.safeJson(res);
   }
 
   async pullFiles(paths: string[]): Promise<PulledFile[]> {
@@ -141,9 +154,10 @@ export class PediaNotesClient {
             throw: false,
           });
           if (res.status >= 400) {
-            throw new Error(res.json?.error || `Pull failed (${res.status})`);
+            throw new Error(this.errorMessage(res, "Pull failed"));
           }
-          return Array.isArray(res.json?.files) ? (res.json.files as PulledFile[]) : [];
+          const data = this.safeJson(res);
+          return Array.isArray(data?.files) ? (data.files as PulledFile[]) : [];
         })
       );
       for (const r of results) all.push(...r);
@@ -166,14 +180,19 @@ export class PediaNotesClient {
       throw: false,
     });
     if (res.status === 409) {
-      const err: any = new Error(res.json?.error || "Conflict detected on server");
+      const data = this.safeJson(res);
+      const err: any = new Error(data?.error || "Conflict detected on server");
       err.status = 409;
-      err.conflicts = res.json?.conflicts || [];
+      err.conflicts = data?.conflicts || [];
       throw err;
     }
     if (res.status >= 400) {
-      throw new Error(res.json?.error || `Push failed (${res.status})`);
+      throw new Error(this.errorMessage(res, "Push failed"));
     }
-    return res.json as PushResponse;
+    const data = this.safeJson(res);
+    if (!data) {
+      throw new Error(`Push returned empty/non-JSON response (HTTP ${res.status})`);
+    }
+    return data as PushResponse;
   }
 }

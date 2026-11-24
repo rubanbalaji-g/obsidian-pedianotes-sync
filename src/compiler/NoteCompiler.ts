@@ -1,4 +1,5 @@
 import { MetadataCache, TFile, Vault } from "obsidian";
+import { expandWikilinksInText } from "src/utils/wikilinks";
 
 export interface CompiledNote {
   file: TFile;
@@ -12,7 +13,12 @@ const BLOCK_REF_RE = /\s*\^[a-zA-Z0-9-]+$/gm;
 const WIKILINK_IMAGE_RE = /!\[\[([^\]]+)\]\]/g;
 
 export class NoteCompiler {
-  constructor(private vault: Vault, private metadataCache: MetadataCache, private preserveVault = false) {}
+  constructor(
+    private vault: Vault,
+    private metadataCache: MetadataCache,
+    private preserveVault = false,
+    private expandWikilinks = true
+  ) {}
 
   public getRepoPath(file: TFile, rawContent?: string): string {
     if (this.preserveVault) return `content/${file.path.replace(/\\/g, "/")}`;
@@ -48,7 +54,10 @@ export class NoteCompiler {
   }
 
   public async compile(file: TFile): Promise<CompiledNote> {
-    const raw = await this.vault.cachedRead(file);
+    let raw = await this.vault.cachedRead(file);
+    if (this.expandWikilinks) {
+      raw = expandWikilinksInText(raw, file.path, this.metadataCache).text;
+    }
     const repoPath = this.getRepoPath(file, raw);
     if (this.preserveVault) return { file, repoPath, content: raw };
     const fileName = file.name.toLowerCase();

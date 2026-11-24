@@ -63,8 +63,16 @@ export async function updateSelfAndReload(
   }
 
   const pluginsApi = (app as any).plugins;
+  if (pluginsApi?.loadManifests) {
+    await pluginsApi.loadManifests().catch(() => {});
+  }
   if (pluginsApi?.disablePlugin && pluginsApi?.enablePlugin) {
+    app.workspace.detachLeavesOfType("pedianotes-sync-view");
     await pluginsApi.disablePlugin(pluginId);
     await pluginsApi.enablePlugin(pluginId);
+    const reloaded = pluginsApi.getPlugin?.(pluginId);
+    if (reloaded?.openSyncTab) {
+      await reloaded.openSyncTab();
+    }
   }
 }

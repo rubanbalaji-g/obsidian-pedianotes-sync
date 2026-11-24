@@ -398,6 +398,14 @@ export class SyncEngine {
     return warnings;
   }
 
+  public async getServerManifestFiles(): Promise<Array<{ path: string; type: "note" | "asset" }>> {
+    const manifest = await this.client.getManifest();
+    return (manifest.files || []).map((f) => ({
+      path: f.path,
+      type: f.type === "asset" ? "asset" : "note",
+    }));
+  }
+
   public async pullAllFromServer(onProgress?: (done: number, total: number) => void): Promise<number> {
     const manifest = await this.client.getManifest();
     const allPaths = (manifest.files || []).map((f) => f.path);

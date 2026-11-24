@@ -2,6 +2,7 @@ import { App, ItemView, Modal, Notice, WorkspaceLeaf } from "obsidian";
 import { AUTH_PORTAL_URL, MODULE_URLS, PediaModule, PediaNotesPluginSettings } from "src/models/settings";
 import { SyncEngine, SyncPlan } from "src/sync/SyncEngine";
 import { confirmCanonicalReplacement, confirmVault } from "src/utils/confirmVault";
+import { confirmPullFiles } from "src/utils/confirmPull";
 import { convertAllImagesToWebP, findUnusedImages, removeUnusedImages } from "src/utils/vaultImages";
 
 export const VIEW_TYPE_PEDIANOTES_SYNC = "pedianotes-sync-view";
@@ -369,15 +370,32 @@ export class SyncView extends ItemView {
     }
 
     // b. Pull all from server (single consolidated pull button)
-    const pullAllBtn = sideActions.createEl("button", {
-      text: pullTotal > 0 ? `⬇️ Pull all from server (${pullTotal} updates)` : "⬇️ Pull all from server",
-    });
+    const pullAllLabel = pullTotal > 0 ? `⬇️ Pull all from server (${pullTotal} updates)` : "⬇️ Pull all from server";
+    const pullAllBtn = sideActions.createEl("button", { text: pullAllLabel });
     pullAllBtn.addEventListener("click", async () => {
-      if (!(await confirmVault(this.app, this.settings, "pulling all notes and images (existing local files may be overwritten)"))) return;
       pullAllBtn.disabled = true;
-      pullAllBtn.textContent = "Pulling All...";
-      progressWrap.style.display = "block";
+      pullAllBtn.textContent = "Checking server files...";
       try {
+        const serverFiles = await this.engine.getServerManifestFiles();
+        if (serverFiles.length === 0) {
+          new Notice("✨ No files found on the PediaNotes server.");
+          pullAllBtn.disabled = false;
+          pullAllBtn.textContent = pullAllLabel;
+          return;
+        }
+        const confirmed = await confirmPullFiles(
+          this.app,
+          this.settings,
+          "Pull All Files from Server",
+          serverFiles
+        );
+        if (!confirmed) {
+          pullAllBtn.disabled = false;
+          pullAllBtn.textContent = pullAllLabel;
+          return;
+        }
+        pullAllBtn.textContent = "Pulling All...";
+        progressWrap.style.display = "block";
         const count = await this.engine.pullAllFromServer((done, total) => {
           progressBar.style.width = `${Math.round((done / Math.max(total, 1)) * 100)}%`;
         });
@@ -387,7 +405,7 @@ export class SyncView extends ItemView {
       } catch (err: any) {
         new Notice(`❌ Pull All failed: ${err.message}`);
         pullAllBtn.disabled = false;
-        pullAllBtn.textContent = pullTotal > 0 ? `⬇️ Pull all from server (${pullTotal} updates)` : "⬇️ Pull all from server";
+        pullAllBtn.textContent = pullAllLabel;
       }
     });
 

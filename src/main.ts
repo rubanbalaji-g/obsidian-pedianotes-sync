@@ -6,6 +6,7 @@ import { SyncView, VIEW_TYPE_PEDIANOTES_SYNC } from "src/views/SyncView";
 import { NavigationOrderModal } from "src/views/NavigationOrderModal";
 import { SettingsTab } from "src/views/SettingsTab";
 import { confirmVault } from "src/utils/confirmVault";
+import { confirmPullFiles } from "src/utils/confirmPull";
 import { PullReminderModal } from "src/views/PullReminderModal";
 import { retireLegacyModule } from "src/models/moduleMigration";
 
@@ -87,9 +88,15 @@ export default class PediaNotesSyncPlugin extends Plugin {
       id: "pull-all-from-pedianotes",
       name: "Pull All Notes & Images from PediaNotes Server",
       callback: async () => {
-        if (!(await confirmVault(this.app, this.settings, "pulling all notes and images (existing local files may be overwritten)"))) return;
-        new Notice("⬇️ Pulling all notes & images from PediaNotes...");
+        new Notice("🔍 Checking server files...");
         try {
+          const serverFiles = await this.engine.getServerManifestFiles();
+          if (serverFiles.length === 0) {
+            new Notice("✨ No files found on the PediaNotes server.");
+            return;
+          }
+          if (!(await confirmPullFiles(this.app, this.settings, "Pull All Files from Server", serverFiles))) return;
+          new Notice("⬇️ Pulling all notes & images from PediaNotes...");
           const count = await this.engine.pullAllFromServer();
           new Notice(`✅ Pulled ${count} file(s) from PediaNotes`);
           this.updateStatusBar();
@@ -223,10 +230,21 @@ export default class PediaNotesSyncPlugin extends Plugin {
         await this.engine.syncThemeFromServer().catch(() => {});
       }
       const plan = await this.engine.computeSyncPlan();
-      const pullCount = plan.toPullNotes.length + plan.toPullAssets.length;
-      if (pullCount > 0) {
-        const pulled = await this.engine.pullFromServer(plan);
-        new Notice(`⬇️ PediaNotes pulled ${pulled} updated file(s).`);
+      const filesToPull = [
+        ...plan.toPullNotes.map((f) => ({ path: f.path, type: "note" as const })),
+        ...plan.toPullAssets.map((f) => ({ path: f.path, type: "asset" as const })),
+      ];
+      if (filesToPull.length > 0) {
+        const confirmed = await confirmPullFiles(
+          this.app,
+          this.settings,
+          "Pull Updates from Server",
+          filesToPull
+        );
+        if (confirmed) {
+          const pulled = await this.engine.pullFromServer(plan);
+          new Notice(`⬇️ PediaNotes pulled ${pulled} updated file(s).`);
+        }
       } else if (!silentIfClean) {
         new Notice("✨ PediaNotes is already up to date.");
       }

@@ -280,6 +280,58 @@ export class SyncView extends ItemView {
     }
 
     const pullTotal = plan.toPullNotes.length + plan.toPullAssets.length;
+    if (pullTotal > 0) {
+      const pullBox = mainPane.createEl("div", { cls: "pn-section-box" });
+      pullBox.createEl("div", {
+        text: `🔵 Updates on Server to Pull (${plan.toPullNotes.length} notes, ${plan.toPullAssets.length} images)`,
+        cls: "pn-section-title",
+      });
+      const pullList = pullBox.createEl("div", { cls: "pn-file-list" });
+      for (const n of plan.toPullNotes.slice(0, 40)) {
+        pullList.createEl("div", { text: `📄 ${n.path}`, cls: "pn-file-row" });
+      }
+      for (const a of plan.toPullAssets.slice(0, 40)) {
+        pullList.createEl("div", { text: `🖼 ${a.path}`, cls: "pn-file-row" });
+      }
+      if (pullTotal > 80) {
+        pullList.createEl("div", { text: `...and ${pullTotal - 80} more file(s)` });
+      }
+
+      const pullRow = pullBox.createEl("div", { cls: "pn-main-publish-row" });
+      const pullUpdatesBtn = pullRow.createEl("button", {
+        text: `⬇️ Pull ${pullTotal} Update${pullTotal === 1 ? "" : "s"}`,
+        cls: "mod-cta",
+      });
+      pullUpdatesBtn.addEventListener("click", async () => {
+        const filesToPull = [
+          ...plan.toPullNotes.map((f) => ({ path: f.path, type: "note" as const })),
+          ...plan.toPullAssets.map((f) => ({ path: f.path, type: "asset" as const })),
+        ];
+        const confirmed = await confirmPullFiles(
+          this.app,
+          this.settings,
+          `Pull ${pullTotal} Update${pullTotal === 1 ? "" : "s"} from Server`,
+          filesToPull
+        );
+        if (!confirmed) return;
+        pullUpdatesBtn.disabled = true;
+        pullUpdatesBtn.textContent = "Pulling Updates...";
+        progressWrap.style.display = "block";
+        try {
+          const count = await this.engine.pullFromServer(plan, (done, total) => {
+            progressBar.style.width = `${Math.round((done / Math.max(total, 1)) * 100)}%`;
+          });
+          new Notice(`✅ Pulled ${count} updated file(s) from PediaNotes`);
+          if (this.onSyncComplete) this.onSyncComplete();
+          await this.render();
+        } catch (err: any) {
+          new Notice(`❌ Pull failed: ${err.message}`);
+          pullUpdatesBtn.disabled = false;
+          pullUpdatesBtn.textContent = `⬇️ Pull ${pullTotal} Update${pullTotal === 1 ? "" : "s"}`;
+        }
+      });
+    }
+
     if (!hasPendingPublish && pullTotal === 0 && plan.conflicts.length === 0) {
       mainPane.createEl("p", {
         text: "✨ Everything is up to date between your Obsidian vault and PediaNotes!",
@@ -360,8 +412,8 @@ export class SyncView extends ItemView {
       });
     }
 
-    // b. Pull all from server (single consolidated pull button)
-    const pullAllLabel = pullTotal > 0 ? `⬇️ Pull all from server (${pullTotal} updates)` : "⬇️ Pull all from server";
+    // b. Pull all from server (full server sync)
+    const pullAllLabel = "⬇️ Pull all from server";
     const pullAllBtn = sideActions.createEl("button", { text: pullAllLabel });
     pullAllBtn.addEventListener("click", async () => {
       pullAllBtn.disabled = true;

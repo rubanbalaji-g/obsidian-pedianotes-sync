@@ -52,5 +52,10 @@ export function confirmVault(app: App, settings: PediaNotesPluginSettings, actio
 }
 
 export function confirmCanonicalReplacement(app: App): Promise<boolean> {
-  return confirmDialog(app, "Replace P&O server notes", "This creates a GitHub backup branch, then replaces ALL P&O clinical Markdown notes with vault notes marked publish: true. Server-only notes will be removed from main. Site layouts and existing assets are preserved.\n\nType REPLACE to continue.", "REPLACE");
+  return confirmDialog(
+    app,
+    "Treat vault as canonical",
+    "This creates a GitHub backup branch, replaces ALL server clinical Markdown notes with vault notes marked publish: true, prunes obsolete server images, and uploads missing/changed vault images. Existing collaborator author attribution is preserved.\n\nType REPLACE to continue.",
+    "REPLACE"
+  );
 }

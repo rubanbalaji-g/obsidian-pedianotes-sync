@@ -71,11 +71,11 @@ export class SettingsTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Target PediaNotes Site (Vault Module)")
-      .setDesc("Select the correct site for this vault. The separate Practical and OSCE sites have been retired; use P&O for the combined site.")
+      .setDesc("Select the correct site for this vault. Use Practical for the combined Practical & OSCE content.")
       .addDropdown((dd) => {
         dd.addOption("unselected", "Select a site…");
         dd.addOption("theory", "DNB Theory (theory.pedianotes.in)");
-        dd.addOption("po", "P&O (Practicals & OSCE) (practical2.pedianotes.in)");
+        dd.addOption("po", "Practical (practical.pedianotes.in)");
         dd.setValue(this.plugin.settings.module);
         dd.onChange(async (val) => {
           if (val === this.plugin.settings.module) return;

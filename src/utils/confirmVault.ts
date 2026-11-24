@@ -1,4 +1,4 @@
-import { App, Modal } from "obsidian";
+import { App, Modal, Notice } from "obsidian";
 import { MODULE_URLS, PediaNotesPluginSettings } from "src/models/settings";
 
 function confirmDialog(app: App, title: string, message: string, requiredText?: string): Promise<boolean> {
@@ -44,6 +44,10 @@ function confirmDialog(app: App, title: string, message: string, requiredText?: 
 }
 
 export function confirmVault(app: App, settings: PediaNotesPluginSettings, action: string): Promise<boolean> {
+  if (!MODULE_URLS[settings.module]) {
+    new Notice("Select Theory or P&O in PediaNotes plugin settings before syncing.");
+    return Promise.resolve(false);
+  }
   return confirmDialog(app, "Confirm vault", `Before ${action}:\n\nObsidian vault: ${app.vault.getName()}\nPediaNotes module: ${settings.module.toUpperCase()}\nSite: ${MODULE_URLS[settings.module] || "Unknown — do not continue"}\n\nOnly continue if this is the correct vault and destination.`);
 }
 

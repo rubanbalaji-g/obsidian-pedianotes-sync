@@ -7,6 +7,7 @@ import { NavigationOrderModal } from "src/views/NavigationOrderModal";
 import { SettingsTab } from "src/views/SettingsTab";
 import { confirmVault } from "src/utils/confirmVault";
 import { PullReminderModal } from "src/views/PullReminderModal";
+import { retireLegacyModule } from "src/models/moduleMigration";
 
 export default class PediaNotesSyncPlugin extends Plugin {
   settings: PediaNotesPluginSettings = DEFAULT_SETTINGS;
@@ -99,7 +100,10 @@ export default class PediaNotesSyncPlugin extends Plugin {
       checkCallback: (checking) => {
         const file = this.app.workspace.getActiveFile();
         if (file && file.extension === "md") {
-          if (!checking) window.open(this.getWebUrlForFile(file), "_blank");
+          if (!checking) {
+            const url = this.getWebUrlForFile(file);
+            if (url) window.open(url, "_blank");
+          }
           return true;
         }
         return false;
@@ -125,14 +129,19 @@ export default class PediaNotesSyncPlugin extends Plugin {
             item
               .setTitle("Open on PediaNotes Web")
               .setIcon("external-link")
-              .onClick(() => window.open(this.getWebUrlForFile(file), "_blank"))
+              .onClick(() => {
+                const url = this.getWebUrlForFile(file);
+                if (url) window.open(url, "_blank");
+              })
           );
           menu.addItem((item) =>
             item
               .setTitle("Copy PediaNotes Link")
               .setIcon("link")
               .onClick(() => {
-                navigator.clipboard.writeText(this.getWebUrlForFile(file));
+                const url = this.getWebUrlForFile(file);
+                if (!url) return;
+                navigator.clipboard.writeText(url);
                 new Notice("🔗 Copied PediaNotes URL");
               })
           );
@@ -149,14 +158,21 @@ export default class PediaNotesSyncPlugin extends Plugin {
 
     // Remind users to pull, but never pull automatically on startup.
     this.app.workspace.onLayoutReady(() => {
-      if (this.settings.token) {
+      if (this.settings.module === "unselected") {
+        new Notice("The old Practical/OSCE site is retired. Select Theory or P&O in PediaNotes settings before syncing.", 12000);
+      } else if (this.settings.token) {
         new PullReminderModal(this.app, this.settings, () => { void this.runAutoPull(false); }).open();
       }
     });
   }
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const saved = await this.loadData();
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
+    const oldModule = String(saved?.module || "");
+    if (retireLegacyModule(this.settings, oldModule)) {
+      await this.saveData(this.settings);
+    }
   }
 
   async saveSettings() {
@@ -243,7 +259,7 @@ export default class PediaNotesSyncPlugin extends Plugin {
   }
 
   private async flushOfflineQueue() {
-    if (!this.settings.token || !navigator.onLine || !this.settings.offlineQueue?.length) return;
+    if (this.settings.module === "unselected" || !this.settings.token || !navigator.onLine || !this.settings.offlineQueue?.length) return;
     if (!(await confirmVault(this.app, this.settings, `publishing ${this.settings.offlineQueue.length} queued note(s)`))) return;
     const queue = [...this.settings.offlineQueue];
     const remaining: string[] = [];
@@ -265,6 +281,10 @@ export default class PediaNotesSyncPlugin extends Plugin {
 
   private getWebUrlForFile(file: TFile): string {
     const base = MODULE_URLS[this.settings.module];
+    if (!base) {
+      new Notice("Select Theory or P&O in PediaNotes plugin settings first.");
+      return "";
+    }
     const slug = file.path
       .replace(/\.md$/i, "")
       .split("/")

@@ -29,6 +29,13 @@ export class SyncModal extends Modal {
       cls: "pn-sync-badge",
     });
 
+    if (!MODULE_URLS[this.settings.module]) {
+      contentEl.createEl("p", {
+        text: "The separate Practical and OSCE sites have been retired. Open PediaNotes plugin settings and select Theory or the combined P&O site for this vault before syncing.",
+      });
+      return;
+    }
+
     if (!this.settings.token) {
       contentEl.createEl("p", {
         text: "Sign in with your PediaNotes account to sync notes and images.",

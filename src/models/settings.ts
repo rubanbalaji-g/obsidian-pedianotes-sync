@@ -1,4 +1,9 @@
-export type PediaModule = "theory" | "practical" | "osce" | "po";
+export type PediaModule = "theory" | "po" | "unselected";
+
+export interface StoredModuleSyncState {
+  baseShas: Record<string, string>;
+  offlineQueue: string[];
+}
 
 export interface PediaNotesPluginSettings {
   token: string;
@@ -15,6 +20,7 @@ export interface PediaNotesPluginSettings {
   offlineQueue: string[]; // vault paths queued when offline
   themeSynced: boolean;
   lastSyncAt: string;
+  moduleSyncStates?: Record<string, StoredModuleSyncState>;
 }
 
 export const DEFAULT_SETTINGS: PediaNotesPluginSettings = {
@@ -36,9 +42,8 @@ export const DEFAULT_SETTINGS: PediaNotesPluginSettings = {
 
 export const MODULE_URLS: Record<PediaModule, string> = {
   theory: "https://theory.pedianotes.in",
-  practical: "https://practical.pedianotes.in",
-  osce: "https://osce.pedianotes.in",
   po: "https://practical2.pedianotes.in",
+  unselected: "",
 };
 
 export const AUTH_PORTAL_URL = "https://auth.pedianotes.in";

@@ -44,7 +44,9 @@ export class PediaNotesClient {
   constructor(private settings: PediaNotesPluginSettings) {}
 
   private baseUrl(): string {
-    return MODULE_URLS[this.settings.module] || MODULE_URLS.theory;
+    const url = MODULE_URLS[this.settings.module];
+    if (!url) throw new Error("Select Theory or P&O in plugin settings before syncing.");
+    return url;
   }
 
   private headers(): Record<string, string> {

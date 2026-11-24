@@ -71,16 +71,30 @@ export class SettingsTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Target PediaNotes Site (Vault Module)")
-      .setDesc("Choose which PediaNotes knowledge base this Obsidian vault syncs with.")
+      .setDesc("Select the correct site for this vault. The separate Practical and OSCE sites have been retired; use P&O for the combined site.")
       .addDropdown((dd) => {
+        dd.addOption("unselected", "Select a site…");
         dd.addOption("theory", "DNB Theory (theory.pedianotes.in)");
-        dd.addOption("practical", "DNB Practicals (practical.pedianotes.in)");
-        dd.addOption("osce", "DNB OSCE (osce.pedianotes.in)");
         dd.addOption("po", "P&O (Practicals & OSCE) (practical2.pedianotes.in)");
         dd.setValue(this.plugin.settings.module);
         dd.onChange(async (val) => {
+          if (val === this.plugin.settings.module) return;
+          const previous = this.plugin.settings.module;
+          const states = this.plugin.settings.moduleSyncStates || {};
+          if (previous !== "unselected") {
+            states[previous] = {
+              baseShas: { ...this.plugin.settings.baseShas },
+              offlineQueue: [...this.plugin.settings.offlineQueue],
+            };
+          }
+          const next = states[val];
+          this.plugin.settings.moduleSyncStates = states;
+          this.plugin.settings.baseShas = { ...(next?.baseShas || {}) };
+          this.plugin.settings.offlineQueue = [...(next?.offlineQueue || [])];
+          this.plugin.settings.themeSynced = false;
           this.plugin.settings.module = val as PediaModule;
           await this.plugin.saveSettings();
+          new Notice("PediaNotes site changed. Confirm the destination before syncing.");
         });
       });
 

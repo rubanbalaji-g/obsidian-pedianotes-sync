@@ -1,9 +1,11 @@
-import { App, ItemView, Modal, Notice, WorkspaceLeaf } from "obsidian";
+import { App, ItemView, Modal, Notice, Plugin, WorkspaceLeaf } from "obsidian";
 import { AUTH_PORTAL_URL, MODULE_URLS, PediaModule, PediaNotesPluginSettings } from "src/models/settings";
 import { SyncEngine, SyncPlan } from "src/sync/SyncEngine";
 import { confirmCanonicalReplacement, confirmVault } from "src/utils/confirmVault";
 import { confirmPullFiles } from "src/utils/confirmPull";
 import { convertAllImagesToWebP, findUnusedImages, removeUnusedImages } from "src/utils/vaultImages";
+import { checkLatestPluginRelease, updateSelfAndReload } from "src/utils/selfUpdater";
+import { AdminUploadKitModal, installVaultKit } from "src/utils/vaultKit";
 
 export const VIEW_TYPE_PEDIANOTES_SYNC = "pedianotes-sync-view";
 
@@ -47,6 +49,7 @@ function confirmActionModal(app: App, title: string, message: string, confirmLab
 export class SyncView extends ItemView {
   constructor(
     leaf: WorkspaceLeaf,
+    private plugin: Plugin & { saveSettings: () => Promise<void> },
     private engine: SyncEngine,
     private settings: PediaNotesPluginSettings,
     private onSyncComplete?: () => void
@@ -107,26 +110,14 @@ export class SyncView extends ItemView {
       void this.render();
     });
 
-    if (!MODULE_URLS[this.settings.module]) {
-      container.createEl("p", {
-        text: "The separate Practical and OSCE sites have been retired. Open PediaNotes plugin settings and select Theory or the combined P&O site for this vault before syncing.",
-      });
+    if (!this.settings.token || this.settings.module === "unselected" || !this.settings.vaultSetupCompleted) {
+      await this.renderSetupWizard(container, vaultName);
       return;
     }
 
-    if (!this.settings.token) {
-      container.createEl("p", {
-        text: "Sign in with your PediaNotes account to sync notes and images.",
-      });
-      const btn = container.createEl("button", {
-        text: "Sign In with PediaNotes",
-        cls: "mod-cta",
-      });
-      btn.addEventListener("click", () => {
-        window.open(`${AUTH_PORTAL_URL}/plugin-auth`, "_blank");
-      });
-      return;
-    }
+    // Prominent Update Banner (Syncer self-update & Vault Kit update)
+    const updateBanner = container.createEl("div", { cls: "pn-update-banner", attr: { style: "display:none;" } });
+    void this.populateUpdateBanner(updateBanner);
 
     const loadingEl = container.createEl("p", { text: "Comparing local vault with PediaNotes server..." });
 
@@ -474,6 +465,213 @@ export class SyncView extends ItemView {
     webBtn.addEventListener("click", () => {
       window.open(MODULE_URLS[this.settings.module], "_blank");
     });
+
+    // f. Update Vault Kit (plugins, CSS snippets, theme)
+    const updateKitBtn = sideActions.createEl("button", { text: "🎨 Update Vault Kit" });
+    updateKitBtn.addEventListener("click", async () => {
+      updateKitBtn.disabled = true;
+      updateKitBtn.textContent = "Updating Vault Kit...";
+      try {
+        const kit = await this.engine.getClient().getVaultKit();
+        if (!kit.files || kit.files.length === 0) {
+          new Notice("No Vault Kit has been uploaded for this site yet.");
+          return;
+        }
+        const count = await installVaultKit(this.app, kit);
+        this.settings.installedKitVersion = kit.version;
+        await this.plugin.saveSettings();
+        new Notice(`✅ Installed ${count} Vault Kit file(s) (version ${kit.version}). Reload Obsidian if new plugins were added.`);
+        await this.render();
+      } catch (err: any) {
+        new Notice(`❌ Vault Kit update failed: ${err.message}`);
+      } finally {
+        updateKitBtn.disabled = false;
+        updateKitBtn.textContent = "🎨 Update Vault Kit";
+      }
+    });
+
+    // g. Upload Vault Kit (admin-only)
+    if (plan.isAdmin) {
+      const uploadKitBtn = sideActions.createEl("button", { text: "📦 Upload Vault Kit" });
+      uploadKitBtn.addEventListener("click", () => {
+        new AdminUploadKitModal(this.app, this.engine.getClient(), async (version) => {
+          this.settings.installedKitVersion = version;
+          await this.plugin.saveSettings();
+          await this.render();
+        }).open();
+      });
+    }
+  }
+
+  private async populateUpdateBanner(bannerEl: HTMLElement) {
+    try {
+      const client = this.engine.getClient();
+      const [rel, kitMeta] = await Promise.all([
+        checkLatestPluginRelease(client, this.plugin.manifest.version),
+        client.getVaultKitMeta().catch(() => null),
+      ]);
+
+      const hasPluginUpdate = Boolean(rel);
+      const hasKitUpdate = Boolean(
+        kitMeta?.version && kitMeta.count > 0 && kitMeta.version !== this.settings.installedKitVersion
+      );
+      if (!hasPluginUpdate && !hasKitUpdate) return;
+
+      bannerEl.empty();
+      bannerEl.style.display = "flex";
+      const textWrap = bannerEl.createEl("div");
+      const parts: string[] = [];
+      if (rel) parts.push(`Syncer v${rel.version} available (current v${this.plugin.manifest.version})`);
+      if (hasKitUpdate && kitMeta) parts.push(`New Vault Kit (${kitMeta.count} plugin/CSS files)`);
+      textWrap.createEl("strong", { text: `🔔 Updates available: ${parts.join(" • ")}` });
+
+      const btnWrap = bannerEl.createEl("div", { attr: { style: "display:flex;gap:8px;flex-wrap:wrap;" } });
+      if (rel) {
+        const upBtn = btnWrap.createEl("button", { text: `⬆️ Update Syncer to v${rel.version}`, cls: "mod-cta" });
+        upBtn.addEventListener("click", async () => {
+          upBtn.disabled = true;
+          upBtn.textContent = "Updating Syncer...";
+          try {
+            await updateSelfAndReload(this.app, this.plugin, rel);
+            new Notice(`✅ Updated PediaNotes Sync to v${rel.version}!`);
+          } catch (err: any) {
+            new Notice(`❌ Self-update failed: ${err.message}`);
+            upBtn.disabled = false;
+            upBtn.textContent = `⬆️ Update Syncer to v${rel.version}`;
+          }
+        });
+      }
+      if (hasKitUpdate) {
+        const kitBtn = btnWrap.createEl("button", { text: "🎨 Update Vault Kit (CSS & Plugins)" });
+        kitBtn.addEventListener("click", async () => {
+          kitBtn.disabled = true;
+          kitBtn.textContent = "Installing Vault Kit...";
+          try {
+            const kit = await client.getVaultKit();
+            const count = await installVaultKit(this.app, kit);
+            this.settings.installedKitVersion = kit.version;
+            await this.plugin.saveSettings();
+            new Notice(`✅ Updated ${count} Vault Kit file(s).`);
+            await this.render();
+          } catch (err: any) {
+            new Notice(`❌ Vault Kit update failed: ${err.message}`);
+            kitBtn.disabled = false;
+            kitBtn.textContent = "🎨 Update Vault Kit (CSS & Plugins)";
+          }
+        });
+      }
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  private async renderSetupWizard(container: HTMLElement, vaultName: string) {
+    const wizard = container.createEl("div", { cls: "pn-wizard" });
+    wizard.createEl("h3", { text: "First-Time Vault Setup" });
+
+    // Step 1: Login
+    const step1 = wizard.createEl("div", { cls: "pn-wizard-step" });
+    step1.createEl("div", {
+      text: this.settings.token
+        ? `✅ Step 1: Signed in as ${this.settings.userEmail || "PediaNotes Collaborator"}`
+        : "Step 1: Sign in with PediaNotes",
+      cls: "pn-wizard-step-title",
+    });
+    if (!this.settings.token) {
+      step1.createEl("p", { text: "Authenticate with your PediaNotes collaborator or admin account." });
+      const loginBtn = step1.createEl("button", { text: "Sign In with PediaNotes", cls: "mod-cta" });
+      loginBtn.addEventListener("click", () => {
+        window.open(`${AUTH_PORTAL_URL}/plugin-auth`, "_blank");
+      });
+    }
+
+    // Step 2: Select Theory / Practical
+    const step2 = wizard.createEl("div", { cls: "pn-wizard-step" });
+    step2.createEl("div", {
+      text: "Step 2: Select PediaNotes Site (Theory / Practical & OSCE)",
+      cls: "pn-wizard-step-title",
+    });
+    const dd = step2.createEl("select", { attr: { style: "min-width:280px;margin-top:6px;" } });
+    dd.createEl("option", { text: "Select a site…", value: "unselected" });
+    dd.createEl("option", { text: "DNB Theory (theory.pedianotes.in)", value: "theory" });
+    dd.createEl("option", { text: "Practical & OSCE (practical2.pedianotes.in)", value: "po" });
+    dd.value = this.settings.module;
+    dd.addEventListener("change", async () => {
+      this.settings.module = dd.value as PediaModule;
+      await this.plugin.saveSettings();
+      await this.render();
+    });
+
+    // Step 3: Setup Vault
+    const step3 = wizard.createEl("div", { cls: "pn-wizard-step" });
+    step3.createEl("div", { text: "Step 3: Setup Vault", cls: "pn-wizard-step-title" });
+    step3.createEl("p", {
+      text: `Installs required plugins, CSS snippets, and theme into "${vaultName}", updates the syncer plugin if needed, and pulls notes from the server.`,
+    });
+
+    const canSetup = Boolean(this.settings.token && MODULE_URLS[this.settings.module]);
+    const setupBtn = step3.createEl("button", { text: "🚀 Setup Vault", cls: "mod-cta" });
+    setupBtn.disabled = !canSetup;
+    const statusEl = step3.createEl("p", { attr: { style: "font-size:12px;color:var(--text-muted);margin-top:8px;" } });
+
+    setupBtn.addEventListener("click", async () => {
+      setupBtn.disabled = true;
+      try {
+        const client = this.engine.getClient();
+        statusEl.setText("Checking for latest syncer plugin...");
+        const rel = await checkLatestPluginRelease(client, this.plugin.manifest.version);
+        if (rel) {
+          statusEl.setText(`Updating syncer to v${rel.version}...`);
+          await updateSelfAndReload(this.app, this.plugin, rel);
+        }
+
+        statusEl.setText("Downloading and installing Vault Kit (plugins & CSS)...");
+        const kit = await client.getVaultKit().catch(() => null);
+        if (kit?.files?.length) {
+          const count = await installVaultKit(this.app, kit);
+          this.settings.installedKitVersion = kit.version;
+          new Notice(`✅ Installed ${count} Vault Kit file(s).`);
+        }
+
+        statusEl.setText("Checking notes & images to pull...");
+        const serverFiles = await this.engine.getServerManifestFiles();
+        if (serverFiles.length > 0) {
+          const confirmed = await confirmPullFiles(
+            this.app,
+            this.settings,
+            "Pull Notes & Images for Initial Setup",
+            serverFiles
+          );
+          if (confirmed) {
+            statusEl.setText(`Pulling ${serverFiles.length} file(s)...`);
+            await this.engine.pullAllFromServer((done, total) => {
+              statusEl.setText(`Pulling ${done}/${total} file(s)...`);
+            });
+          }
+        }
+
+        this.settings.vaultSetupCompleted = true;
+        await this.plugin.saveSettings();
+        new Notice(`✅ Vault "${vaultName}" setup complete!`);
+        await this.render();
+      } catch (err: any) {
+        new Notice(`❌ Vault setup failed: ${err.message}`);
+        statusEl.setText(`❌ ${err.message}`);
+        setupBtn.disabled = false;
+      }
+    });
+
+    if (this.settings.token && MODULE_URLS[this.settings.module]) {
+      const skipBtn = step3.createEl("button", {
+        text: "Skip Wizard & Open Sync Center",
+        attr: { style: "margin-left:8px;" },
+      });
+      skipBtn.addEventListener("click", async () => {
+        this.settings.vaultSetupCompleted = true;
+        await this.plugin.saveSettings();
+        await this.render();
+      });
+    }
   }
 
   private showDiffModal(title: string, serverText: string, localText: string) {

@@ -49,6 +49,10 @@ export class SyncEngine {
     this.client = new PediaNotesClient(settings);
   }
 
+  public getClient(): PediaNotesClient {
+    return this.client;
+  }
+
   public updateSettings(settings: PediaNotesPluginSettings) {
     this.settings = settings;
     this.compiler = new NoteCompiler(

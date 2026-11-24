@@ -198,4 +198,75 @@ export class PediaNotesClient {
     }
     return data as PushResponse;
   }
+
+  async getLatestRelease(): Promise<{
+    tag: string;
+    version: string;
+    assets: Record<string, string>;
+  }> {
+    const res = await requestUrl({
+      url: `${this.baseUrl()}/_api/plugin/latest-release`,
+      method: "GET",
+      headers: this.headers(),
+      throw: false,
+    });
+    if (res.status >= 400) {
+      throw new Error(this.errorMessage(res, "Latest release check failed"));
+    }
+    return this.safeJson(res);
+  }
+
+  async getVaultKitMeta(): Promise<{
+    version: string;
+    updatedAt: string;
+    updatedBy: string;
+    count: number;
+  }> {
+    const res = await requestUrl({
+      url: `${this.baseUrl()}/_api/plugin/vault-kit?meta=1`,
+      method: "GET",
+      headers: this.headers(),
+      throw: false,
+    });
+    if (res.status >= 400) {
+      throw new Error(this.errorMessage(res, "Vault kit metadata fetch failed"));
+    }
+    return this.safeJson(res);
+  }
+
+  async getVaultKit(): Promise<{
+    version: string;
+    updatedAt: string;
+    updatedBy: string;
+    count: number;
+    files: Array<{ path: string; content: string; encoding: "utf-8" | "base64" }>;
+  }> {
+    const res = await requestUrl({
+      url: `${this.baseUrl()}/_api/plugin/vault-kit`,
+      method: "GET",
+      headers: this.headers(),
+      throw: false,
+    });
+    if (res.status >= 400) {
+      throw new Error(this.errorMessage(res, "Vault kit fetch failed"));
+    }
+    return this.safeJson(res);
+  }
+
+  async uploadVaultKit(
+    files: Array<{ path: string; content: string; encoding: "utf-8" | "base64" }>,
+    action: "replace" | "reset" | "append" | "commit" = "replace"
+  ): Promise<{ ok?: boolean; version?: string; count?: number; staged?: number }> {
+    const res = await requestUrl({
+      url: `${this.baseUrl()}/_api/plugin/vault-kit`,
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify({ action, files }),
+      throw: false,
+    });
+    if (res.status >= 400) {
+      throw new Error(this.errorMessage(res, "Vault kit upload failed"));
+    }
+    return this.safeJson(res);
+  }
 }

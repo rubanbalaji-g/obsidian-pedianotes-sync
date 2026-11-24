@@ -21,6 +21,8 @@ export interface PediaNotesPluginSettings {
   offlineQueue: string[]; // vault paths queued when offline
   themeSynced: boolean;
   lastSyncAt: string;
+  vaultSetupCompleted: boolean;
+  installedKitVersion: string;
   moduleSyncStates?: Record<string, StoredModuleSyncState>;
 }
 
@@ -40,6 +42,8 @@ export const DEFAULT_SETTINGS: PediaNotesPluginSettings = {
   offlineQueue: [],
   themeSynced: false,
   lastSyncAt: "",
+  vaultSetupCompleted: false,
+  installedKitVersion: "",
 };
 
 export const MODULE_URLS: Record<PediaModule, string> = {

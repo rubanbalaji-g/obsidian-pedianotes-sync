@@ -43,7 +43,8 @@ export default class PediaNotesSyncPlugin extends Plugin {
 
     this.registerView(
       VIEW_TYPE_PEDIANOTES_SYNC,
-      (leaf: WorkspaceLeaf) => new SyncView(leaf, this.engine, this.settings, () => this.updateStatusBar())
+      (leaf: WorkspaceLeaf) =>
+        new SyncView(leaf, this, this.engine, this.settings, () => this.updateStatusBar())
     );
 
     this.addRibbonIcon("refresh-cw", "PediaNotes Syncer", () => {
@@ -196,6 +197,9 @@ export default class PediaNotesSyncPlugin extends Plugin {
   async loadSettings() {
     const saved = await this.loadData();
     this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
+    if (!this.settings.vaultSetupCompleted && Object.keys(this.settings.baseShas || {}).length > 0) {
+      this.settings.vaultSetupCompleted = true;
+    }
     const oldModule = String(saved?.module || "");
     if (retireLegacyModule(this.settings, oldModule)) {
       await this.saveData(this.settings);

@@ -260,3 +260,32 @@
   font-size: 14px;
   margin-bottom: 6px;
 }
+
+.pn-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pn-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.pn-action-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.pn-admin-section {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.pn-admin-title {
+  color: #f59e0b;
+}

@@ -1,4 +1,4 @@
-import { App, ItemView, Modal, Notice, Plugin, WorkspaceLeaf } from "obsidian";
+import { App, ItemView, Modal, Notice, Plugin, setIcon, WorkspaceLeaf } from "obsidian";
 import { AUTH_PORTAL_URL, MODULE_URLS, PediaModule, PediaNotesPluginSettings } from "src/models/settings";
 import { SyncEngine, SyncPlan } from "src/sync/SyncEngine";
 import { confirmCanonicalReplacement, confirmVault } from "src/utils/confirmVault";
@@ -44,6 +44,24 @@ function confirmActionModal(app: App, title: string, message: string, confirmLab
     okBtn.addEventListener("click", () => finish(true));
     modal.open();
   });
+}
+
+function createActionButton(
+  parent: HTMLElement,
+  iconName: string,
+  label: string,
+  cls?: string
+): { button: HTMLButtonElement; setLabel: (txt: string) => void } {
+  const button = parent.createEl("button", { cls: cls ? `pn-action-btn ${cls}` : "pn-action-btn" });
+  const iconEl = button.createSpan({ cls: "pn-action-icon" });
+  setIcon(iconEl, iconName);
+  const textEl = button.createSpan({ text: label, cls: "pn-action-label" });
+  return {
+    button,
+    setLabel: (txt: string) => {
+      textEl.setText(txt);
+    },
+  };
 }
 
 export class SyncView extends ItemView {
@@ -387,43 +405,15 @@ export class SyncView extends ItemView {
     sidePane.createEl("div", { text: "Actions", cls: "pn-side-pane-title" });
     const sideActions = sidePane.createEl("div", { cls: "pn-side-actions" });
 
-    // a. Treat vault as canonical (shown on both po and theory for admins)
-    if (plan.isAdmin && (this.settings.module === "po" || this.settings.module === "theory")) {
-      const canonicalBtn = sideActions.createEl("button", { text: "Treat vault as canonical" });
-      canonicalBtn.addEventListener("click", async () => {
-        if (!(await confirmVault(this.app, this.settings, "replacing server notes from this vault"))) return;
-        if (!(await confirmCanonicalReplacement(this.app))) return;
-        canonicalBtn.disabled = true;
-        canonicalBtn.textContent = "Creating backup & replacing...";
-        try {
-          const result = await this.engine.replaceCanonicalNotes();
-          if (!result.refreshed || !result.build?.ok) {
-            new Notice(`GitHub updated; server refresh/build needs attention. Backup: ${result.backupBranch}`, 15000);
-          } else {
-            new Notice(`Canonical replacement complete. Backup: ${result.backupBranch}`, 15000);
-          }
-          if (this.onSyncComplete) this.onSyncComplete();
-          await this.render();
-        } catch (err: any) {
-          new Notice(`Canonical replacement failed: ${err.message}`, 15000);
-          canonicalBtn.disabled = false;
-          canonicalBtn.textContent = "Treat vault as canonical";
-        }
-      });
-    }
-
-    // b. Pull all from server (full server sync)
-    const pullAllLabel = "⬇️ Pull all from server";
-    const pullAllBtn = sideActions.createEl("button", { text: pullAllLabel });
-    pullAllBtn.addEventListener("click", async () => {
-      pullAllBtn.disabled = true;
-      pullAllBtn.textContent = "Checking server files...";
+    // 1. Pull all from server
+    const pullAll = createActionButton(sideActions, "download", "Pull all from server");
+    pullAll.button.addEventListener("click", async () => {
+      pullAll.button.disabled = true;
+      pullAll.setLabel("Checking server files...");
       try {
         const serverFiles = await this.engine.getServerManifestFiles();
         if (serverFiles.length === 0) {
           new Notice("✨ No files found on the PediaNotes server.");
-          pullAllBtn.disabled = false;
-          pullAllBtn.textContent = pullAllLabel;
           return;
         }
         const confirmed = await confirmPullFiles(
@@ -432,12 +422,8 @@ export class SyncView extends ItemView {
           "Pull All Files from Server",
           serverFiles
         );
-        if (!confirmed) {
-          pullAllBtn.disabled = false;
-          pullAllBtn.textContent = pullAllLabel;
-          return;
-        }
-        pullAllBtn.textContent = "Pulling All...";
+        if (!confirmed) return;
+        pullAll.setLabel("Pulling all...");
         progressWrap.style.display = "block";
         const count = await this.engine.pullAllFromServer((done, total) => {
           progressBar.style.width = `${Math.round((done / Math.max(total, 1)) * 100)}%`;
@@ -447,106 +433,77 @@ export class SyncView extends ItemView {
         await this.render();
       } catch (err: any) {
         new Notice(`❌ Pull All failed: ${err.message}`);
-        pullAllBtn.disabled = false;
-        pullAllBtn.textContent = pullAllLabel;
-      }
-    });
-
-    // c. Remove unused images
-    const removeUnusedBtn = sideActions.createEl("button", { text: "🗑 Remove unused images" });
-    removeUnusedBtn.addEventListener("click", async () => {
-      removeUnusedBtn.disabled = true;
-      removeUnusedBtn.textContent = "Scanning images...";
-      try {
-        const scan = await findUnusedImages(this.app.vault);
-        if (scan.unused.length === 0) {
-          new Notice(`✨ No unused images found (${scan.totalImages} images scanned).`);
-          return;
-        }
-        const mb = (scan.unusedBytes / (1024 * 1024)).toFixed(2);
-        const ok = await confirmActionModal(
-          this.app,
-          "Remove Unused Images",
-          `Found ${scan.unused.length} unused image(s) (${mb} MB) out of ${scan.totalImages} total images in "${vaultName}". Move them to Obsidian's .trash?`,
-          `Move ${scan.unused.length} to Trash`
-        );
-        if (!ok) return;
-        const removed = await removeUnusedImages(this.app.vault, scan.unused);
-        new Notice(`🗑 Moved ${removed} unused image(s) (${mb} MB) to .trash.`);
-        await this.render();
-      } catch (err: any) {
-        new Notice(`❌ Failed to remove unused images: ${err.message}`);
       } finally {
-        removeUnusedBtn.disabled = false;
-        removeUnusedBtn.textContent = "🗑 Remove unused images";
+        pullAll.button.disabled = false;
+        pullAll.setLabel("Pull all from server");
       }
     });
 
-    // d. Convert all images to WebP
-    const webpBtn = sideActions.createEl("button", { text: "🖼 Convert all images to WebP" });
-    webpBtn.addEventListener("click", async () => {
+    // 2. Rebuild vault to server state (regular action with strong warning)
+    const rebuildBtn = createActionButton(sideActions, "rotate-ccw", "Rebuild vault to server state");
+    rebuildBtn.button.addEventListener("click", async () => {
       const ok = await confirmActionModal(
         this.app,
-        "Convert All Images to WebP",
-        `This will deduplicate identical images, convert PNG/JPG/BMP images in "${vaultName}" to WebP, update Markdown image links, and move replaced originals to .trash. Continue?`,
-        "Convert to WebP"
+        "Rebuild Vault to Server State",
+        `WARNING: This will update your Vault Kit (plugins & CSS), overwrite local notes/images with the server versions, and DELETE (move to .trash) any local notes and images in "${vaultName}" that do not exist on the server. Any unpublished local work will be trashed. Continue?`,
+        "Yes, Rebuild Vault"
       );
       if (!ok) return;
-      webpBtn.disabled = true;
-      webpBtn.textContent = "Converting to WebP...";
+      rebuildBtn.button.disabled = true;
+      rebuildBtn.setLabel("Rebuilding vault...");
       progressWrap.style.display = "block";
       try {
-        const res = await convertAllImagesToWebP(this.app.vault, this.app.metadataCache, (done, total) => {
+        const client = this.engine.getClient();
+        const kit = await client.getVaultKit().catch(() => null);
+        if (kit?.files?.length) {
+          await installVaultKit(this.app, kit);
+          this.settings.installedKitVersion = kit.version;
+          await this.plugin.saveSettings();
+        }
+        const res = await this.engine.rebuildVaultToServerState((done, total) => {
           progressBar.style.width = `${Math.round((done / Math.max(total, 1)) * 100)}%`;
         });
-        const savedMb = (res.savedBytes / (1024 * 1024)).toFixed(2);
         new Notice(
-          `✅ WebP complete: converted ${res.converted}, deduplicated ${res.deduplicated}, updated ${res.linksUpdated} links across ${res.filesUpdated} notes (saved ~${savedMb} MB).`
+          `✅ Vault rebuilt: pulled ${res.pulledCount} file(s), trashed ${res.deletedNotes} extra note(s) and ${res.deletedImages} extra image(s).`
         );
+        if (this.onSyncComplete) this.onSyncComplete();
         await this.render();
       } catch (err: any) {
-        new Notice(`❌ WebP conversion failed: ${err.message}`);
+        new Notice(`❌ Rebuild failed: ${err.message}`);
       } finally {
-        webpBtn.disabled = false;
-        webpBtn.textContent = "🖼 Convert all images to WebP";
+        rebuildBtn.button.disabled = false;
+        rebuildBtn.setLabel("Rebuild vault to server state");
       }
     });
 
-    // e. View site
-    const webBtn = sideActions.createEl("button", { text: "🌐 View site" });
-    webBtn.addEventListener("click", () => {
-      window.open(MODULE_URLS[this.settings.module], "_blank");
-    });
-
-    // f. Check / Update Syncer plugin itself
-    const selfUpdateBtn = sideActions.createEl("button", {
-      text: `🔄 Update Syncer (v${this.plugin.manifest.version})`,
-    });
-    selfUpdateBtn.addEventListener("click", async () => {
-      selfUpdateBtn.disabled = true;
-      selfUpdateBtn.textContent = "Checking for updates...";
+    // 3. Check / Update Syncer plugin itself
+    const selfUpdateLabel = `Update Syncer (v${this.plugin.manifest.version})`;
+    const selfUpdate = createActionButton(sideActions, "refresh-cw", selfUpdateLabel);
+    selfUpdate.button.addEventListener("click", async () => {
+      selfUpdate.button.disabled = true;
+      selfUpdate.setLabel("Checking for updates...");
       try {
         const rel = await checkLatestPluginRelease(this.engine.getClient(), this.plugin.manifest.version);
         if (!rel) {
           new Notice(`✅ PediaNotes Sync is already up to date (v${this.plugin.manifest.version}).`);
           return;
         }
-        selfUpdateBtn.textContent = `Updating to v${rel.version}...`;
+        selfUpdate.setLabel(`Updating to v${rel.version}...`);
         await updateSelfAndReload(this.app, this.plugin, rel);
         new Notice(`✅ Updated PediaNotes Sync to v${rel.version}!`);
       } catch (err: any) {
         new Notice(`❌ Syncer update failed: ${err.message}`);
       } finally {
-        selfUpdateBtn.disabled = false;
-        selfUpdateBtn.textContent = `🔄 Update Syncer (v${this.plugin.manifest.version})`;
+        selfUpdate.button.disabled = false;
+        selfUpdate.setLabel(selfUpdateLabel);
       }
     });
 
-    // g. Update Vault Kit (plugins, CSS snippets, theme)
-    const updateKitBtn = sideActions.createEl("button", { text: "🎨 Update Vault Kit" });
-    updateKitBtn.addEventListener("click", async () => {
-      updateKitBtn.disabled = true;
-      updateKitBtn.textContent = "Updating Vault Kit...";
+    // 4. Update Vault Kit
+    const updateKit = createActionButton(sideActions, "palette", "Update Vault Kit");
+    updateKit.button.addEventListener("click", async () => {
+      updateKit.button.disabled = true;
+      updateKit.setLabel("Updating Vault Kit...");
       try {
         const kit = await this.engine.getClient().getVaultKit();
         if (!kit.files || kit.files.length === 0) {
@@ -561,15 +518,144 @@ export class SyncView extends ItemView {
       } catch (err: any) {
         new Notice(`❌ Vault Kit update failed: ${err.message}`);
       } finally {
-        updateKitBtn.disabled = false;
-        updateKitBtn.textContent = "🎨 Update Vault Kit";
+        updateKit.button.disabled = false;
+        updateKit.setLabel("Update Vault Kit");
       }
     });
 
-    // g. Upload Vault Kit (admin-only)
+    // 5. View site
+    const viewSite = createActionButton(sideActions, "globe", "View site");
+    viewSite.button.addEventListener("click", () => {
+      window.open(MODULE_URLS[this.settings.module], "_blank");
+    });
+
+    // === ADMIN-ONLY ACTIONS (Strictly hidden for non-admins) ===
     if (plan.isAdmin) {
-      const uploadKitBtn = sideActions.createEl("button", { text: "📦 Upload Vault Kit" });
-      uploadKitBtn.addEventListener("click", () => {
+      const adminWrap = sidePane.createEl("div", { cls: "pn-admin-section" });
+      adminWrap.createEl("div", { text: "Admin Actions", cls: "pn-side-pane-title pn-admin-title" });
+      const adminActions = adminWrap.createEl("div", { cls: "pn-side-actions" });
+
+      // a. Treat vault as canonical (po and theory)
+      if (this.settings.module === "po" || this.settings.module === "theory") {
+        const canonical = createActionButton(adminActions, "upload-cloud", "Treat vault as canonical");
+        canonical.button.addEventListener("click", async () => {
+          if (!(await confirmVault(this.app, this.settings, "replacing server notes from this vault"))) return;
+          if (!(await confirmCanonicalReplacement(this.app))) return;
+          canonical.button.disabled = true;
+          canonical.setLabel("Creating backup & replacing...");
+          try {
+            const result = await this.engine.replaceCanonicalNotes();
+            if (!result.refreshed || !result.build?.ok) {
+              new Notice(`GitHub updated; server refresh/build needs attention. Backup: ${result.backupBranch}`, 15000);
+            } else {
+              new Notice(`Canonical replacement complete. Backup: ${result.backupBranch}`, 15000);
+            }
+            if (this.onSyncComplete) this.onSyncComplete();
+            await this.render();
+          } catch (err: any) {
+            new Notice(`Canonical replacement failed: ${err.message}`, 15000);
+            canonical.button.disabled = false;
+            canonical.setLabel("Treat vault as canonical");
+          }
+        });
+      }
+
+      // b. Delete unused images (local vault)
+      const removeUnused = createActionButton(adminActions, "trash-2", "Delete unused images");
+      removeUnused.button.addEventListener("click", async () => {
+        removeUnused.button.disabled = true;
+        removeUnused.setLabel("Scanning images...");
+        try {
+          const scan = await findUnusedImages(this.app.vault);
+          if (scan.unused.length === 0) {
+            new Notice(`✨ No unused images found (${scan.totalImages} images scanned).`);
+            return;
+          }
+          const mb = (scan.unusedBytes / (1024 * 1024)).toFixed(2);
+          const ok = await confirmActionModal(
+            this.app,
+            "Delete Unused Images",
+            `Found ${scan.unused.length} unused image(s) (${mb} MB) out of ${scan.totalImages} total images in "${vaultName}". Move them to Obsidian's .trash?`,
+            `Yes, Move ${scan.unused.length} to Trash`
+          );
+          if (!ok) return;
+          const removed = await removeUnusedImages(this.app.vault, scan.unused);
+          new Notice(`✅ Moved ${removed} unused image(s) (${mb} MB) to .trash.`);
+          await this.render();
+        } catch (err: any) {
+          new Notice(`❌ Failed to delete unused images: ${err.message}`);
+        } finally {
+          removeUnused.button.disabled = false;
+          removeUnused.setLabel("Delete unused images");
+        }
+      });
+
+      // c. Convert all images to WebP (local vault)
+      const webp = createActionButton(adminActions, "image", "Convert images to WebP");
+      webp.button.addEventListener("click", async () => {
+        const ok = await confirmActionModal(
+          this.app,
+          "Convert All Images to WebP",
+          `This will deduplicate identical images, convert PNG/JPG/BMP images in "${vaultName}" to WebP, update Markdown image links, and move replaced originals to .trash. Continue?`,
+          "Yes, Convert to WebP"
+        );
+        if (!ok) return;
+        webp.button.disabled = true;
+        webp.setLabel("Converting to WebP...");
+        progressWrap.style.display = "block";
+        try {
+          const res = await convertAllImagesToWebP(this.app.vault, this.app.metadataCache, (done, total) => {
+            progressBar.style.width = `${Math.round((done / Math.max(total, 1)) * 100)}%`;
+          });
+          const savedMb = (res.savedBytes / (1024 * 1024)).toFixed(2);
+          new Notice(
+            `✅ WebP complete: converted ${res.converted}, deduplicated ${res.deduplicated}, updated ${res.linksUpdated} links across ${res.filesUpdated} notes (saved ~${savedMb} MB).`
+          );
+          await this.render();
+        } catch (err: any) {
+          new Notice(`❌ WebP conversion failed: ${err.message}`);
+        } finally {
+          webp.button.disabled = false;
+          webp.setLabel("Convert images to WebP");
+        }
+      });
+
+      // d. Server cleanup (unused images on main branch, dryRun first)
+      const serverCleanup = createActionButton(adminActions, "sparkles", "Server cleanup (unused images)");
+      serverCleanup.button.addEventListener("click", async () => {
+        serverCleanup.button.disabled = true;
+        serverCleanup.setLabel("Scanning server images...");
+        try {
+          const client = this.engine.getClient();
+          const dry = await client.cleanupServerImages(true);
+          const count = dry.unusedCount || 0;
+          if (count === 0) {
+            new Notice(`✨ No unused images on server (${dry.totalImages} checked).`);
+            return;
+          }
+          const mb = (dry.totalBytes / (1024 * 1024)).toFixed(2);
+          const ok = await confirmActionModal(
+            this.app,
+            "Server Cleanup: Remove Unused Images",
+            `Dry run found ${count} unused image(s) (${mb} MB) out of ${dry.totalImages} images on the server's main branch. Remove them from GitHub and rebuild the site?`,
+            `Yes, Remove ${count} Image(s)`
+          );
+          if (!ok) return;
+          serverCleanup.setLabel("Removing from server...");
+          const res = await client.cleanupServerImages(false);
+          new Notice(`✅ Removed ${res.removedCount || count} unused image(s) (${mb} MB) from server.`);
+          await this.render();
+        } catch (err: any) {
+          new Notice(`❌ Server cleanup failed: ${err.message}`);
+        } finally {
+          serverCleanup.button.disabled = false;
+          serverCleanup.setLabel("Server cleanup (unused images)");
+        }
+      });
+
+      // e. Upload Vault Kit
+      const uploadKit = createActionButton(adminActions, "package", "Upload Vault Kit");
+      uploadKit.button.addEventListener("click", () => {
         new AdminUploadKitModal(this.app, this.engine.getClient(), async (version) => {
           this.settings.installedKitVersion = version;
           await this.plugin.saveSettings();

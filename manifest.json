@@ -1,7 +1,7 @@
 {
   "id": "obsidian-pedianotes-sync",
   "name": "PediaNotes Sync",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "minAppVersion": "1.4.0",
   "description": "Two-way Obsidian sync for PediaNotes Theory and combined Practical & OSCE using PediaNotes SSO.",
   "author": "Dr. Rubanbalaji",

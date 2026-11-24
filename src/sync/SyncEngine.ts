@@ -474,6 +474,65 @@ export class SyncEngine {
     return written;
   }
 
+  public async rebuildVaultToServerState(
+    onProgress?: (done: number, total: number) => void
+  ): Promise<{ pulledCount: number; deletedNotes: number; deletedImages: number }> {
+    const manifest = await this.client.getManifest();
+    const remoteFiles = manifest.files || [];
+
+    const localMdFiles = this.vault.getMarkdownFiles();
+    const repoToVaultPath = new Map<string, string>();
+    for (const file of localMdFiles) {
+      const raw = await this.vault.cachedRead(file);
+      repoToVaultPath.set(this.compiler.getRepoPath(file, raw), file.path);
+    }
+
+    const expectedNotePaths = new Set<string>();
+    const expectedAssetPaths = new Set<string>();
+    const expectedAssetNames = new Set<string>();
+
+    for (const rf of remoteFiles) {
+      const mapped = this.mapRepoPathToVaultPath(rf.path, repoToVaultPath);
+      if (rf.type === "note") {
+        expectedNotePaths.add(mapped.toLowerCase());
+      } else {
+        expectedAssetPaths.add(mapped.toLowerCase());
+        const base = rf.path.split("/").pop() || "";
+        if (base) expectedAssetNames.add(base.toLowerCase());
+      }
+    }
+
+    const pulledCount = await this.pullAllFromServer(onProgress);
+
+    let deletedNotes = 0;
+    for (const file of this.vault.getMarkdownFiles()) {
+      if (file.path.startsWith(".obsidian/") || file.path.startsWith(".trash/") || file.path.startsWith("_trash/")) {
+        continue;
+      }
+      if (!expectedNotePaths.has(file.path.toLowerCase())) {
+        await this.vault.trash(file, false).catch(() => {});
+        deletedNotes++;
+      }
+    }
+
+    const IMG_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif", "heic", "tiff", "tif", "ico"]);
+    let deletedImages = 0;
+    for (const file of this.vault.getFiles()) {
+      if (file.path.startsWith(".obsidian/") || file.path.startsWith(".trash/") || file.path.startsWith("_trash/")) {
+        continue;
+      }
+      if (!IMG_EXTS.has(file.extension.toLowerCase())) continue;
+      const pLower = file.path.toLowerCase();
+      const nLower = file.name.toLowerCase();
+      if (!expectedAssetPaths.has(pLower) && !expectedAssetNames.has(nLower)) {
+        await this.vault.trash(file, false).catch(() => {});
+        deletedImages++;
+      }
+    }
+
+    return { pulledCount, deletedNotes, deletedImages };
+  }
+
   public async pushToServer(
     notes: CompiledNote[],
     images: Array<{ repoPath: string; file: TFile }>,

@@ -269,4 +269,26 @@ export class PediaNotesClient {
     }
     return this.safeJson(res);
   }
+
+  async cleanupServerImages(dryRun = true): Promise<{
+    dryRun: boolean;
+    totalImages: number;
+    unusedCount?: number;
+    removedCount?: number;
+    totalBytes: number;
+    unused?: string[];
+    removed?: string[];
+  }> {
+    const res = await requestUrl({
+      url: `${this.baseUrl()}/_api/plugin/cleanup-images`,
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify({ dryRun }),
+      throw: false,
+    });
+    if (res.status >= 400) {
+      throw new Error(this.errorMessage(res, "Server image cleanup failed"));
+    }
+    return this.safeJson(res);
+  }
 }

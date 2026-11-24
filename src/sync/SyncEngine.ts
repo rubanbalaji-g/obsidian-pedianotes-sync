@@ -92,17 +92,45 @@ export class SyncEngine {
       await expandWikilinksInFiles(this.vault, this.metadataCache, notes);
     }
     const files: PushFilePayload[] = [];
+    const referencedImages = new Map<string, TFile>();
     for (const file of notes) {
       const compiled = await this.compiler.compile(file);
       files.push({ path: compiled.repoPath, content: compiled.content, encoding: "utf-8" });
+      const raw = await this.vault.cachedRead(file);
+      for (const r of collectImageRefs(raw, this.vault)) {
+        if (r.file) referencedImages.set(this.assetRepoPath(r.file), r.file);
+      }
     }
-    const result = await this.client.replaceCanonicalNotes(files);
+    const assetPaths = Array.from(referencedImages.keys());
+    const result = await this.client.replaceCanonicalNotes(files, assetPaths);
     if (result.refreshed) {
       try {
         const fresh = await this.client.getManifest();
+        const remoteMap = new Map<string, string>();
+        for (const entry of fresh.files) {
+          remoteMap.set(entry.path, entry.sha);
+        }
+
+        const imagesToUpload: Array<{ repoPath: string; file: TFile }> = [];
+        for (const [repoImgPath, file] of referencedImages.entries()) {
+          const remoteSha = remoteMap.get(repoImgPath);
+          const localSha = await computeGitBlobShaFromBytes(new Uint8Array(await this.vault.readBinary(file)));
+          if (!remoteSha || remoteSha !== localSha) {
+            imagesToUpload.push({ repoPath: repoImgPath, file });
+          }
+        }
+
+        if (imagesToUpload.length > 0) {
+          await this.pushToServer([], imagesToUpload, {
+            commitMessage: "Sync canonical images from vault",
+          });
+        }
+
         const expected = new Set(files.map((file) => file.path));
         for (const key of Object.keys(this.settings.baseShas)) {
-          if (key.startsWith("content/")) delete this.settings.baseShas[key];
+          if (key.startsWith("content/") || key.startsWith("static/img/") || key.startsWith("static/images/")) {
+            delete this.settings.baseShas[key];
+          }
         }
         for (const entry of fresh.files) {
           if (expected.has(entry.path)) this.settings.baseShas[entry.path] = entry.sha;
@@ -111,7 +139,7 @@ export class SyncEngine {
         await this.saveSettings();
       } catch (error) {
         // GitHub has already changed. Do not report an aborted replacement.
-        console.warn("Canonical replacement succeeded, but sync state could not be refreshed", error);
+        console.warn("Canonical replacement succeeded, but sync state or images could not be fully refreshed", error);
       }
     }
     return result;

@@ -101,7 +101,10 @@ export class PediaNotesClient {
     return this.safeJson(res);
   }
 
-  async replaceCanonicalNotes(files: PushFilePayload[]): Promise<{
+  async replaceCanonicalNotes(
+    files: PushFilePayload[],
+    assetPaths?: string[]
+  ): Promise<{
     success: boolean; backupBranch: string; commit: string;
     count: number; refreshed: boolean; build?: { ok: boolean };
   }> {
@@ -109,7 +112,7 @@ export class PediaNotesClient {
       url: `${this.baseUrl()}/_api/plugin/canonical`,
       method: "POST",
       headers: this.headers(),
-      body: JSON.stringify({ confirm: "REPLACE_PUBLISHED_NOTES", files }),
+      body: JSON.stringify({ confirm: "REPLACE_PUBLISHED_NOTES", files, assetPaths }),
       throw: false,
     });
     if (res.status >= 400) throw new Error(this.errorMessage(res, "Canonical replacement failed"));

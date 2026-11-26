@@ -773,7 +773,7 @@ export class SyncView extends ItemView {
     const dd = step2.createEl("select", { attr: { style: "min-width:280px;margin-top:6px;" } });
     dd.createEl("option", { text: "Select a site…", value: "unselected" });
     dd.createEl("option", { text: "DNB Theory (theory.pedianotes.in)", value: "theory" });
-    dd.createEl("option", { text: "Practical & OSCE (practical2.pedianotes.in)", value: "po" });
+    dd.createEl("option", { text: "Practical & OSCE (practical.pedianotes.in)", value: "po" });
     dd.value = this.settings.module;
     dd.addEventListener("change", async () => {
       this.settings.module = dd.value as PediaModule;

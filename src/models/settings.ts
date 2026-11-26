@@ -48,7 +48,7 @@ export const DEFAULT_SETTINGS: PediaNotesPluginSettings = {
 
 export const MODULE_URLS: Record<PediaModule, string> = {
   theory: "https://theory.pedianotes.in",
-  po: "https://practical2.pedianotes.in",
+  po: "https://practical.pedianotes.in",
   unselected: "",
 };
 
